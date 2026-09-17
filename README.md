@@ -28,9 +28,7 @@ npm install
 npm run dev
 ```
 
-Dev server: **http://localhost:5173/** (Vite default; `host: true` so LAN works).
-
-开发服务器：**http://localhost:5173/**（Vite 默认端口；已开启 `host: true`）。
+Dev server: **http://localhost:5173/**
 
 ```bash
 npm run build    # output in dist/
@@ -39,29 +37,26 @@ npm run preview  # preview production build
 
 ## GitHub Pages / GitHub Pages 部署
 
-Production build is committed under `/docs` (copied from `npm run build` → `dist/`).
-`vite.config.js` uses `base: './'` for relative asset paths.
+`/docs` is set up for Pages using **CDN Phaser** + `docs/src/` modules (import map). This avoids committing the ~1.5MB Vite bundle through the API connector.
 
-生产构建已提交到仓库的 `/docs`（由 `npm run build` 的 `dist/` 复制而来）。
-`vite.config.js` 使用 `base: './'`，相对资源路径可用。
+`/docs` 使用 **CDN Phaser** + `docs/src/` 模块（import map），避免通过 API 连接器提交约 1.5MB 的 Vite 打包文件。
 
 **Enable Pages / 开启步骤**
 
 1. Repo → **Settings** → **Pages**
 2. Source: **Deploy from a branch**
 3. Branch: **`main`** / folder: **`/docs`** → Save
-4. Site URL (after a minute): `https://obrs09.github.io/phymetroid/`
+4. Site URL (after a minute): https://obrs09.github.io/phymetroid/
 
-When you change the game later: `npm run build && rm -rf docs && mkdir docs && cp -a dist/. docs/` then commit.
+Optional later: replace with `npm run build` output under `docs/` once you can `git push` a large `docs/assets/*.js`.
 
-之后改游戏时：重新 build，再把 `dist/` 复制进 `docs/` 后提交。
+可选：本地 `git push` 可用后，再用 `npm run build` 产物覆盖 `docs/`。
 
 ## Tech / 技术
 
 - Phaser **3.80+**, Arcade Physics (AABB)
 - Logical resolution **320×180**, `Scale.FIT` + `autoCenter` + `pixelArt` / `roundPixels`
-- Rooms data: `src/rooms.js` — grow the map there
-- Placeholders: generated rectangle/circle textures (no external art required)
+- Rooms data: `src/rooms.js`
 
 ## Project layout / 目录
 
@@ -70,7 +65,5 @@ src/main.js
 src/scenes/GameScene.js
 src/rooms.js
 src/player.js
-assets/
+docs/          # GitHub Pages root (CDN + docs/src)
 ```
-
-Future tilemap: see stub comments in `GameScene.js` / `rooms.js`.
