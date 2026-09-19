@@ -1,4 +1,4 @@
-import Phaser from 'phaser';
+import Phaser from '../phaser-shim.js';
 import { ROOMS, GAME_W, GAME_H, getWorldBounds, findRoomAt } from '../rooms.js';
 import {
   createPlayer,

@@ -25,15 +25,27 @@
         image-rendering: crisp-edges;
       }
     </style>
-    <script type="importmap">
-      {
-        "imports": {
-          "phaser": "https://cdn.jsdelivr.net/npm/phaser@3.90.0/dist/phaser.esm.js"
-        }
-      }
-    </script>
+    <!-- UMD build exposes window.Phaser (ESM build has no default export) -->
+    <script src="https://cdn.jsdelivr.net/npm/phaser@3.90.0/dist/phaser.min.js"></script>
   </head>
   <body>
+    <script>
+      function showBootError(msg) {
+        var el = document.getElementById('boot-error');
+        if (!el) {
+          el = document.createElement('pre');
+          el.id = 'boot-error';
+          el.style.cssText = 'position:fixed;left:8px;top:8px;right:8px;z-index:9999;color:#ff8a80;background:#000c;padding:8px;font:12px/1.4 monospace;white-space:pre-wrap;';
+          document.body.appendChild(el);
+        }
+        el.textContent += String(msg) + '\n';
+      }
+      window.addEventListener('error', function (e) { showBootError(e.message || e); });
+      window.addEventListener('unhandledrejection', function (e) {
+        var r = e.reason;
+        showBootError(r && (r.stack || r.message || r));
+      });
+    </script>
     <div id="game-container"></div>
     <script type="module" src="./src/main.js"></script>
   </body>

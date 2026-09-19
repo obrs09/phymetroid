@@ -1,4 +1,4 @@
-import Phaser from 'phaser';
+import Phaser from './phaser-shim.js';
 import { GAME_W, GAME_H } from './rooms.js';
 import { GameScene } from './scenes/GameScene.js';
 
