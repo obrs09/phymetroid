@@ -202,51 +202,6 @@ check(
 );
 await page.screenshot({ path: `${OUT}/v3_03b_crossed_r1_r2.png` });
 
-// R1 → R3 pits stay open; middle under R1_floorB and R3 L/R stay sealed
-await page.evaluate(() => {
-  window.__PHYMETROID_DEBUG__.warp(820, 300);
-  window.__PHYMETROID_DEBUG__.setDown('down');
-});
-await new Promise((r) => setTimeout(r, 1100));
-const intoR3 = await page.evaluate(() => window.__PHYMETROID_DEBUG__.pos());
-check('R1 first pit drops into R3', intoR3.room === 'R3' && intoR3.y > 360, JSON.stringify(intoR3));
-
-await page.evaluate(() => {
-  window.__PHYMETROID_DEBUG__.warp(1080, 300);
-  window.__PHYMETROID_DEBUG__.setDown('down');
-});
-await new Promise((r) => setTimeout(r, 1100));
-const intoR3b = await page.evaluate(() => window.__PHYMETROID_DEBUG__.pos());
-check('R1 second pit drops into R3', intoR3b.room === 'R3' && intoR3b.y > 360, JSON.stringify(intoR3b));
-
-await page.evaluate(() => {
-  window.__PHYMETROID_DEBUG__.warp(960, 500);
-  window.__PHYMETROID_DEBUG__.setDown('up');
-});
-await new Promise((r) => setTimeout(r, 1100));
-const blockedMid = await page.evaluate(() => window.__PHYMETROID_DEBUG__.pos());
-check(
-  'R3 middle ceiling sealed (cannot leave via 240–400)',
-  blockedMid.room === 'R3' && blockedMid.y > 376,
-  JSON.stringify(blockedMid)
-);
-
-const r3Walls = await page.evaluate(() => ({
-  left: window.__PHYMETROID_DEBUG__.solidsNear(648, 8),
-  right: window.__PHYMETROID_DEBUG__.solidsNear(1272, 8),
-}));
-check(
-  'R3 left wall present',
-  r3Walls.left.some((s) => s.tag === 'wall' && s.h >= 300 && s.y >= 360),
-  JSON.stringify(r3Walls.left)
-);
-check(
-  'R3 right wall present',
-  r3Walls.right.some((s) => s.tag === 'wall' && s.h >= 300 && s.y >= 360),
-  JSON.stringify(r3Walls.right)
-);
-await page.screenshot({ path: `${OUT}/v3_03c_r3_pits.png` });
-
 // Real I-mode approach: fall right from mid-R2, pass the old wall x, catch the stub under the gate
 const approachSolids = await page.evaluate(() => window.__PHYMETROID_DEBUG__.solidsNear(1496, 20));
 check(
@@ -348,6 +303,51 @@ check('map R3 stays spoiler-free if unvisited', !mapInfo?.R3?.visited && (mapInf
 check('map keeps R4 role hint', mapInfo?.R4?.role === 'fric');
 await page.screenshot({ path: `${OUT}/v3_08_map_r4.png` });
 await page.evaluate(() => window.__PHYMETROID_DEBUG__.toggleMap());
+
+// R1 → R3 pits stay open; middle under R1_floorB and R3 L/R stay sealed
+await page.evaluate(() => {
+  window.__PHYMETROID_DEBUG__.warp(820, 300);
+  window.__PHYMETROID_DEBUG__.setDown('down');
+});
+await new Promise((r) => setTimeout(r, 1100));
+const intoR3 = await page.evaluate(() => window.__PHYMETROID_DEBUG__.pos());
+check('R1 first pit drops into R3', intoR3.room === 'R3' && intoR3.y > 360, JSON.stringify(intoR3));
+
+await page.evaluate(() => {
+  window.__PHYMETROID_DEBUG__.warp(1080, 300);
+  window.__PHYMETROID_DEBUG__.setDown('down');
+});
+await new Promise((r) => setTimeout(r, 1100));
+const intoR3b = await page.evaluate(() => window.__PHYMETROID_DEBUG__.pos());
+check('R1 second pit drops into R3', intoR3b.room === 'R3' && intoR3b.y > 360, JSON.stringify(intoR3b));
+
+await page.evaluate(() => {
+  window.__PHYMETROID_DEBUG__.warp(960, 500);
+  window.__PHYMETROID_DEBUG__.setDown('up');
+});
+await new Promise((r) => setTimeout(r, 1100));
+const blockedMid = await page.evaluate(() => window.__PHYMETROID_DEBUG__.pos());
+check(
+  'R3 middle ceiling sealed (cannot leave via 240–400)',
+  blockedMid.room === 'R3' && blockedMid.y > 376,
+  JSON.stringify(blockedMid)
+);
+
+const r3Walls = await page.evaluate(() => ({
+  left: window.__PHYMETROID_DEBUG__.solidsNear(648, 8),
+  right: window.__PHYMETROID_DEBUG__.solidsNear(1272, 8),
+}));
+check(
+  'R3 left wall present',
+  r3Walls.left.some((s) => s.tag === 'wall' && s.h >= 300 && s.y >= 360),
+  JSON.stringify(r3Walls.left)
+);
+check(
+  'R3 right wall present',
+  r3Walls.right.some((s) => s.tag === 'wall' && s.h >= 300 && s.y >= 360),
+  JSON.stringify(r3Walls.right)
+);
+await page.screenshot({ path: `${OUT}/v3_03c_r3_pits.png` });
 
 // Feel debugger + v3 export payload
 await page.evaluate(() => window.__PHYMETROID_DEBUG__.toggleFeel());
