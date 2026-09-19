@@ -58,6 +58,7 @@ await page.screenshot({ path: `${OUT}/v3_01_boot_r0.png` });
 
 const boot = await page.evaluate(() => ({
   schema: window.__PHYMETROID_GET_DESIGN__().schemaVersion,
+  layoutRevision: window.__PHYMETROID_GET_DESIGN__().layoutRevision,
   run: window.__PHYMETROID_GET_RUN__(),
   logical: {
     w: window.__PHYMETROID_GET_DESIGN__().logicalW,
@@ -77,9 +78,10 @@ const boot = await page.evaluate(() => ({
 check('schemaVersion 4', boot.schema === 4, String(boot.schema));
 check(
   'v4 solid counts',
-  boot.rooms.every((r) => ({ R0: 5, R1: 6, R2: 7, R3: 7, R4: 7 })[r.id] === r.solids),
+  boot.rooms.every((r) => ({ R0: 5, R1: 6, R2: 7, R3: 8, R4: 7 })[r.id] === r.solids),
   JSON.stringify(boot.rooms)
 );
+check('layoutRevision 5', boot.layoutRevision === 5, String(boot.layoutRevision));
 check('baked design validates', Array.isArray(boot.validation) && boot.validation.length === 0, JSON.stringify(boot.validation));
 check('logical 640x360', boot.logical.w === 640 && boot.logical.h === 360, JSON.stringify(boot.logical));
 check('R3 under R1', boot.rooms.find((r) => r.id === 'R3')?.y === 360);
@@ -222,6 +224,31 @@ check(
 );
 await page.screenshot({ path: `${OUT}/v3_04_r2_doorframe.png` });
 
+const oldDoor = await page.evaluate(() => {
+  const old = window.__PHYMETROID_GET_DESIGN__();
+  const r2 = old.sections.rooms.find((r) => r.id === 'R2');
+  const door = r2.solids.find((s) => s.id === 'R2_doorframe');
+  Object.assign(door, { space: 'world', x: 1496, y: 16, w: 24, h: 312 });
+  delete old.layoutRevision;
+  window.__PHYMETROID_APPLY_DESIGN__(old);
+  return {
+    door: window.__PHYMETROID_GET_DESIGN__().sections.rooms.find((r) => r.id === 'R2').solids.find((s) => s.id === 'R2_doorframe'),
+    near: window.__PHYMETROID_DEBUG__.solidsNear(1496, 40),
+    rev: window.__PHYMETROID_GET_DESIGN__().layoutRevision,
+  };
+});
+check(
+  'APPLY old tall doorframe migrates to short stub',
+  oldDoor.door?.space === 'local' && oldDoor.door.h === 64 && oldDoor.door.x === 320,
+  JSON.stringify(oldDoor.door)
+);
+check(
+  'no tall mid-R2 solid after old-dump apply',
+  !oldDoor.near.some((s) => s.h >= 200 && s.y < 40 && s.y + s.h > 280),
+  JSON.stringify(oldDoor.near)
+);
+check('export restamps layoutRevision 5', oldDoor.rev === 5, String(oldDoor.rev));
+
 await page.evaluate(() => window.__PHYMETROID_DEBUG__.setDown('up'));
 await new Promise((r) => setTimeout(r, 1100));
 const r4 = await page.evaluate(() => ({
@@ -276,6 +303,51 @@ check('map R3 stays spoiler-free if unvisited', !mapInfo?.R3?.visited && (mapInf
 check('map keeps R4 role hint', mapInfo?.R4?.role === 'fric');
 await page.screenshot({ path: `${OUT}/v3_08_map_r4.png` });
 await page.evaluate(() => window.__PHYMETROID_DEBUG__.toggleMap());
+
+// R1 → R3 pits stay open; middle under R1_floorB and R3 L/R stay sealed
+await page.evaluate(() => {
+  window.__PHYMETROID_DEBUG__.warp(820, 300);
+  window.__PHYMETROID_DEBUG__.setDown('down');
+});
+await new Promise((r) => setTimeout(r, 1100));
+const intoR3 = await page.evaluate(() => window.__PHYMETROID_DEBUG__.pos());
+check('R1 first pit drops into R3', intoR3.room === 'R3' && intoR3.y > 360, JSON.stringify(intoR3));
+
+await page.evaluate(() => {
+  window.__PHYMETROID_DEBUG__.warp(1080, 300);
+  window.__PHYMETROID_DEBUG__.setDown('down');
+});
+await new Promise((r) => setTimeout(r, 1100));
+const intoR3b = await page.evaluate(() => window.__PHYMETROID_DEBUG__.pos());
+check('R1 second pit drops into R3', intoR3b.room === 'R3' && intoR3b.y > 360, JSON.stringify(intoR3b));
+
+await page.evaluate(() => {
+  window.__PHYMETROID_DEBUG__.warp(960, 500);
+  window.__PHYMETROID_DEBUG__.setDown('up');
+});
+await new Promise((r) => setTimeout(r, 1100));
+const blockedMid = await page.evaluate(() => window.__PHYMETROID_DEBUG__.pos());
+check(
+  'R3 middle ceiling sealed (cannot leave via 240–400)',
+  blockedMid.room === 'R3' && blockedMid.y > 376,
+  JSON.stringify(blockedMid)
+);
+
+const r3Walls = await page.evaluate(() => ({
+  left: window.__PHYMETROID_DEBUG__.solidsNear(648, 8),
+  right: window.__PHYMETROID_DEBUG__.solidsNear(1272, 8),
+}));
+check(
+  'R3 left wall present',
+  r3Walls.left.some((s) => s.tag === 'wall' && s.h >= 300 && s.y >= 360),
+  JSON.stringify(r3Walls.left)
+);
+check(
+  'R3 right wall present',
+  r3Walls.right.some((s) => s.tag === 'wall' && s.h >= 300 && s.y >= 360),
+  JSON.stringify(r3Walls.right)
+);
+await page.screenshot({ path: `${OUT}/v3_03c_r3_pits.png` });
 
 // Feel debugger + v3 export payload
 await page.evaluate(() => window.__PHYMETROID_DEBUG__.toggleFeel());

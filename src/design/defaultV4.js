@@ -4,8 +4,9 @@
  */
 export default {
   "schemaVersion": 4,
+  "layoutRevision": 5,
   "game": "phymetroid",
-  "exportedAt": "2026-09-19T18:34:36.000Z",
+  "exportedAt": "2026-09-19T22:10:00.000Z",
   "logicalW": 640,
   "logicalH": 360,
   "worldScale": 2,
@@ -22,7 +23,10 @@ export default {
       "pickups/gates remain the only pickup/gate source of truth; solids may reference gates via gapGateId.",
       "world = room.x/y + local; space:world allowed for cross-room pieces (e.g. doorframe).",
       "Unknown solid.kind → treat as custom/block. Corridor shared vertical walls omitted; engine skips join seals.",
-      "Pixel feel already WORLD_SCALE×2; do not re-scale."
+      "Pixel feel already WORLD_SCALE×2; do not re-scale.",
+      "layoutRevision 5: strip full-height R2_doorframe on load; keep the short catch stub under gate_R2_to_R4.",
+      "R3 ceiling openings align to R1 pits only (160–240, 400–480). Seal the middle under R1_floorB.",
+      "R3 L/R walls stay sealed; join-X skip applies only on the R0–R2 Y band."
     ]
   },
   "sections": {
@@ -389,7 +393,7 @@ export default {
         "w": 640,
         "h": 360,
         "role": "legacyPit",
-        "intent": "旧坑支线；非摩擦教学。顶开口接 R1 地板缝。",
+        "intent": "旧坑支线；非摩擦教学。顶开口仅对齐 R1 地板坑（160–240、400–480）；R1_floorB 正下方封死。左右底保持封闭。",
         "solids": [
           {
             "id": "R3_floor",
@@ -427,7 +431,17 @@ export default {
             "space": "local",
             "x": 0,
             "y": 0,
-            "w": 200,
+            "w": 160,
+            "h": 16,
+            "fixed": true
+          },
+          {
+            "id": "R3_ceilM",
+            "kind": "ceiling",
+            "space": "local",
+            "x": 240,
+            "y": 0,
+            "w": 160,
             "h": 16,
             "fixed": true
           },
@@ -435,9 +449,9 @@ export default {
             "id": "R3_ceilR",
             "kind": "ceiling",
             "space": "local",
-            "x": 440,
+            "x": 480,
             "y": 0,
-            "w": 200,
+            "w": 160,
             "h": 16,
             "fixed": true
           },

@@ -5,6 +5,7 @@
 import assert from 'node:assert/strict';
 import {
   SCHEMA_VERSION,
+  LAYOUT_REVISION,
   applyDesignConfig,
   buildExportPayload,
   canonicalAbilityId,
@@ -16,6 +17,7 @@ import {
   getPlayerDesign,
   getProgressDesign,
   getRooms,
+  migrateLegacyRoomSolids,
   resetDesignToDefaults,
   validateDesignGraph,
 } from '../src/designConfig.js';
@@ -35,12 +37,17 @@ import {
   corridorJoinIsSealed,
   corridorJoinXs,
   countRoomSourceSolids,
+  isTallR2SolidNearGate,
   listWorldSolidRects,
+  openSpansOnAxis,
   pointInRect,
   punchOverlappingGateRects,
+  R1_PIT_LOCAL_SPANS,
   rectsOverlap,
+  SHORT_R2_DOORFRAME_WORLD,
   solidToWorldRect,
   splitRectAroundGate,
+  TALL_R2_NEAR_GATE,
 } from '../src/worldSolids.js';
 import {
   ABILITY,
@@ -65,6 +72,8 @@ section('schemaVersion 4 export shape', () => {
   const dump = buildExportPayload();
   assert.equal(dump.schemaVersion, 4);
   assert.equal(SCHEMA_VERSION, 4);
+  assert.equal(dump.layoutRevision, 5);
+  assert.equal(LAYOUT_REVISION, 5);
   assert.equal(dump.game, 'phymetroid');
   assert.equal(dump.logicalW, 640);
   assert.equal(dump.logicalH, 360);
@@ -131,7 +140,7 @@ section('rooms / pickups / gates coords', () => {
 
 section('v4 rooms[].solids source counts + local/world math', () => {
   const rooms = getRooms();
-  assert.deepEqual(countRoomSourceSolids(rooms), { R0: 5, R1: 6, R2: 7, R3: 7, R4: 7 });
+  assert.deepEqual(countRoomSourceSolids(rooms), { R0: 5, R1: 6, R2: 7, R3: 8, R4: 7 });
   const r4 = rooms.find((r) => r.id === 'R4');
   assert.equal(r4.y, -360);
   const floor = r4.solids.find((s) => s.id === 'R4_floor');
@@ -245,6 +254,95 @@ section('R1 floor pits open R3 without gate.world', () => {
   assert.equal(coversFloor(820), false, 'pit between floorA and floorB');
   assert.equal(coversFloor(1080), false, 'pit between floorB and floorC');
   assert.equal(coversFloor(720), true);
+});
+
+section('R3 ceiling openings match R1 pits only; L/R/bottom sealed', () => {
+  const r3 = getRooms().find((r) => r.id === 'R3');
+  const ceils = r3.solids.filter((s) => s.kind === 'ceiling');
+  assert.deepEqual(openSpansOnAxis(ceils, 0, 640), [...R1_PIT_LOCAL_SPANS]);
+  const mid = ceils.find((s) => s.id === 'R3_ceilM');
+  assert.ok(mid, 'middle ceiling under R1_floorB');
+  assert.deepEqual({ x: mid.x, w: mid.w }, { x: 240, w: 160 });
+
+  const rects = listWorldSolidRects(getRooms(), getGates());
+  const covers = (x, y) => rects.some((r) => pointInRect(r, x, y));
+  const r3Ceils = rects.filter((r) => r.tag === 'ceiling' && r.y === 360);
+  assert.deepEqual(openSpansOnAxis(r3Ceils, 640, 1280), [
+    { x: 800, w: 80 },
+    { x: 1040, w: 80 },
+  ]);
+  assert.equal(covers(648, 540), true, 'R3 left wall stays');
+  assert.equal(covers(1272, 540), true, 'R3 right wall stays');
+  assert.equal(covers(960, 700), true, 'R3 floor stays');
+  assert.equal(covers(960, 368), true, 'middle under R1_floorB sealed');
+  assert.equal(covers(820, 368), false, 'first pit shaft open');
+  assert.equal(covers(1080, 368), false, 'second pit shaft open');
+  // Unintended exits into void (left of R3 / right of R3 at pit Y) stay blocked.
+  assert.equal(covers(640, 500), true);
+  assert.equal(covers(1272, 500), true);
+});
+
+section('old / malicious tall R2_doorframe is migrated and never built', () => {
+  const oldDump = buildExportPayload();
+  const r2 = oldDump.sections.rooms.find((r) => r.id === 'R2');
+  const door = r2.solids.find((s) => s.id === 'R2_doorframe');
+  Object.assign(door, { space: 'world', x: 1496, y: 16, w: 24, h: 312 });
+  const r3 = oldDump.sections.rooms.find((r) => r.id === 'R3');
+  r3.solids = r3.solids.filter((s) => s.kind !== 'ceiling').concat([
+    { id: 'R3_ceilL', kind: 'ceiling', space: 'local', x: 0, y: 0, w: 200, h: 16, fixed: true },
+    { id: 'R3_ceilR', kind: 'ceiling', space: 'local', x: 440, y: 0, w: 200, h: 16, fixed: true },
+  ]);
+  delete oldDump.layoutRevision;
+
+  applyDesignConfig(oldDump);
+  const migratedR2 = getRooms().find((r) => r.id === 'R2');
+  const migratedDoor = migratedR2.solids.find((s) => s.id === 'R2_doorframe');
+  assert.equal(migratedDoor.space, 'local');
+  assert.deepEqual(
+    { x: migratedDoor.x, y: migratedDoor.y, w: migratedDoor.w, h: migratedDoor.h },
+    { x: 320, y: 264, w: 24, h: 64 }
+  );
+  const migratedR3 = getRooms().find((r) => r.id === 'R3');
+  assert.deepEqual(
+    openSpansOnAxis(
+      migratedR3.solids.filter((s) => s.kind === 'ceiling'),
+      0,
+      640
+    ),
+    [...R1_PIT_LOCAL_SPANS]
+  );
+
+  const rects = listWorldSolidRects(getRooms(), getGates());
+  const tall = rects.filter((r) => isTallR2SolidNearGate(r));
+  assert.equal(tall.length, 0, `tall mid-R2 solid survived load: ${JSON.stringify(tall)}`);
+  const nearGate = rects.filter(
+    (r) => r.h >= TALL_R2_NEAR_GATE.minH && r.x < 1620 && r.x + r.w > 1480
+  );
+  assert.equal(nearGate.length, 0, `h>=200 near gate: ${JSON.stringify(nearGate)}`);
+  const stub = rects.find((r) => r.tag === 'doorframe');
+  assert.deepEqual(
+    { x: stub.x, y: stub.y, w: stub.w, h: stub.h },
+    { ...SHORT_R2_DOORFRAME_WORLD }
+  );
+  const gate = getGates().find((g) => g.id === 'gate_R2_to_R4').world;
+  assert.equal(rectsOverlap(stub, gate), false);
+  resetDesignToDefaults();
+});
+
+section('listWorldSolidRects strips tall doorframe even if migrate is skipped', () => {
+  const rooms = getRooms();
+  const r2 = rooms.find((r) => r.id === 'R2');
+  r2.solids = r2.solids.map((s) =>
+    s.id === 'R2_doorframe' ? { ...s, space: 'world', x: 1496, y: 16, w: 24, h: 312 } : s
+  );
+  const rawWorld = solidToWorldRect(r2, r2.solids.find((s) => s.id === 'R2_doorframe'));
+  assert.equal(isTallR2SolidNearGate(rawWorld), true);
+  const rects = listWorldSolidRects(rooms, getGates());
+  assert.equal(rects.filter((r) => isTallR2SolidNearGate(r)).length, 0);
+  const stub = rects.find((r) => r.tag === 'doorframe');
+  assert.deepEqual({ x: stub.x, y: stub.y, w: stub.w, h: stub.h }, { ...SHORT_R2_DOORFRAME_WORLD });
+  const { changed } = migrateLegacyRoomSolids(rooms);
+  assert.equal(changed, true);
 });
 
 section('data-driven key slabs match v3 hardcode', () => {
