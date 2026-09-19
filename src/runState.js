@@ -19,7 +19,7 @@ import {
   getProgressDesign,
   subscribeDesign,
 } from './designConfig.js';
-import { normalizeDown } from './gravity.js';
+import { canonicalizeDown, downVector, normalizeDown, snapDownToNearestAxis } from './gravity.js';
 
 export const ABILITY = Object.freeze({
   GRAVITY_FALL: ABILITY_ID.GRAVITY_FALL,
@@ -239,7 +239,7 @@ export function getGravityDown() {
 }
 
 export function setGravityDown(axis) {
-  const next = normalizeDown(axis, run.gravityDown);
+  const next = canonicalizeDown(axis, run.gravityDown);
   if (next === run.gravityDown) return getRunState();
   run.gravityDown = next;
   notify();
@@ -272,9 +272,17 @@ export function canChangeGravityDirection(supported) {
 export function trySetGravityDown(axis, supported) {
   if (!canChangeGravityDirection(supported)) return { changed: false, down: run.gravityDown };
   const gravity = getGravityDesign();
+  const field = hasAbility(gravity.changeDirectionRequires?.exceptAbility || ABILITY.GRAVITY_FIELD);
   let next = axis;
-  if (gravity.snapDownToNearestAxis && !hasAbility(ABILITY.GRAVITY_FIELD)) {
-    next = normalizeDown(axis, run.gravityDown);
+  if (gravity.snapDownToNearestAxis && !field) {
+    if (typeof axis === 'number' && Number.isFinite(axis)) {
+      const g = downVector(axis);
+      next = snapDownToNearestAxis(g.x, g.y, normalizeDown(run.gravityDown));
+    } else {
+      next = normalizeDown(axis, run.gravityDown);
+    }
+  } else {
+    next = canonicalizeDown(axis, run.gravityDown);
   }
   const prev = run.gravityDown;
   setGravityDown(next);

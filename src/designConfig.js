@@ -18,8 +18,8 @@
  * sections.abilities / runState — never mixed into feel numbers.
  *
  * Persistence: localStorage key `phymetroid.designConfig` (optional boot load).
- * `layoutRevision` (currently 5) stamps baked solids. Boot migrates incompatible
- * dumps (full-height R2_doorframe, pre-pit R3 ceilings) and rewrites storage.
+ * `layoutRevision` (currently 6) stamps baked solids. Boot migrates incompatible
+ * dumps (full-height R2_doorframe, pre-pit R3 ceilings, missing R5/R6) and rewrites storage.
  * Programmatic import: window.__PHYMETROID_APPLY_DESIGN__(objOrJson)
  * or applyDesignConfig(obj). The future 策划 bot can write this same JSON.
  *
@@ -37,7 +37,7 @@ import { isTallR2SolidNearGate, solidToWorldRect } from './worldSolids.js';
 
 export const SCHEMA_VERSION = 4;
 /** Bump when baked solids are incompatible with older localStorage dumps. */
-export const LAYOUT_REVISION = 5;
+export const LAYOUT_REVISION = 6;
 export const GAME_ID = 'phymetroid';
 export const DESIGN_STORAGE_KEY = 'phymetroid.designConfig';
 
@@ -200,6 +200,7 @@ export const PHASE_IDS = Object.freeze([
   'exploration',
   'frictionLesson',
   'jumpLesson',
+  'fieldLesson',
   'boss',
 ]);
 
@@ -211,24 +212,26 @@ export const PROGRESS_DESIGN_DEFAULTS = Object.freeze({
     exploration: 'EXPLORE',
     frictionLesson: 'FRICTION',
     jumpLesson: 'JUMP',
+    fieldLesson: 'FIELD',
     boss: 'BOSS',
   }),
   abilityPhases: Object.freeze({
     [ABILITY_ID.GRAVITY_FALL]: 'exploration',
     [ABILITY_ID.SURFACE_WALK]: 'frictionLesson',
     [ABILITY_ID.REACTION_JUMP]: 'jumpLesson',
-    [ABILITY_ID.GRAVITY_FIELD]: 'exploration',
+    [ABILITY_ID.GRAVITY_FIELD]: 'fieldLesson',
   }),
   pathIntent: Object.freeze({
     zh: Object.freeze([
       'R0：漂浮 → 碰 gravityOrb → 获得 gravityFall（I）。世界重力矢量开启，「下」吸附最近轴；仍不能走/跳。',
       'I 阶段：用四向重力当唯一位移手段（着地时可改方向；空中锁定）。穿过 R1 缺口进入 R2。',
       'R2→R4：R2 顶开通道（第一扇真门，门禁 requireAbility: gravityFall）。右落到门洞右侧短立柱着地，把「下」拨到 up，落体「向上」坠入 R4。门前不得有通高墙。',
-      'R4：摩擦房。左上角 surfaceWalk 拾取 → 获得 II。此后可沿当前「下」行走/扒墙滑。',
-      '其后（本 JSON 未摆放拾取）：reactionJump → 再后 gravityField（III）。',
-      '旧 R3（R1 正下方）保留探索支线，不改 id，不承担摩擦教学。',
+      'R4：摩擦房。左上角 surfaceWalk 拾取 → 获得 II。此后可沿当前「下」行走/扒墙滑。右门走入 R5。',
+      'R5：橙球 reactionJumpOrb (2000, −80) → II+。feel 的 jumpVelocity/cut/coyote/buffer 生效；可贴墙跳。右侧高台+窗是跳跃软门（也可重力翻越）。',
+      'R6：紫球 gravityFieldOrb (2680, −160) → III。Q/E 转 45°（Shift+Q/E 15°），空中可改；[ ] 微调 g。镜头不转。',
+      '旧 R3（R1 正下方）保留探索支线，不改 id，不承担摩擦/跳跃教学。',
     ]),
-    en: 'R0 float → orb → gravityFall → reach R2 via cardinal gravity → flip down to up → fall into R4 → surfaceWalk → walk/slide.',
+    en: 'R0 float → gravityFall → R2 flip up → R4 surfaceWalk → R5 reactionJump (2000,-80) → jump the R5 ledge window → R6 gravityField (2680,-160). Camera never rotates.',
   }),
 });
 
@@ -263,6 +266,36 @@ export const PICKUP_DESIGN_DEFAULTS = Object.freeze([
       statusBanner: 'SURFACE WALK',
     }),
   }),
+  Object.freeze({
+    id: 'reactionJumpOrb',
+    ability: ABILITY_ID.REACTION_JUMP,
+    roomId: 'R5',
+    x: 2000,
+    y: -80,
+    color: '#ff8a65',
+    requires: Object.freeze([ABILITY_ID.SURFACE_WALK]),
+    onCollect: Object.freeze({
+      unlockAbility: ABILITY_ID.REACTION_JUMP,
+      addItem: Object.freeze({ jumpCore: 1 }),
+      advancePhase: 'jumpLesson',
+      statusBanner: 'REACTION JUMP',
+    }),
+  }),
+  Object.freeze({
+    id: 'gravityFieldOrb',
+    ability: ABILITY_ID.GRAVITY_FIELD,
+    roomId: 'R6',
+    x: 2680,
+    y: -160,
+    color: '#ce93d8',
+    requires: Object.freeze([ABILITY_ID.REACTION_JUMP]),
+    onCollect: Object.freeze({
+      unlockAbility: ABILITY_ID.GRAVITY_FIELD,
+      addItem: Object.freeze({ fieldCore: 1 }),
+      advancePhase: 'fieldLesson',
+      statusBanner: 'GRAVITY FIELD',
+    }),
+  }),
 ]);
 
 export const GATE_DESIGN_DEFAULTS = Object.freeze([
@@ -283,11 +316,29 @@ export const GATE_DESIGN_DEFAULTS = Object.freeze([
     requireAbility: ABILITY_ID.GRAVITY_FALL,
     intent: '旧坑道入口；与摩擦教学无关。',
   }),
+  Object.freeze({
+    id: 'gate_R4_to_R5',
+    fromRoomId: 'R4',
+    toRoomId: 'R5',
+    kind: 'sidePassage',
+    requireAbility: ABILITY_ID.SURFACE_WALK,
+    world: Object.freeze({ x: 1904, y: -160, w: 32, h: 128 }),
+    intent: 'R4 右门。surfaceWalk 后可行走进入 R5。',
+  }),
+  Object.freeze({
+    id: 'gate_R5_to_R6',
+    fromRoomId: 'R5',
+    toRoomId: 'R6',
+    kind: 'sidePassage',
+    requireAbility: ABILITY_ID.REACTION_JUMP,
+    world: Object.freeze({ x: 2544, y: -160, w: 32, h: 80 }),
+    intent: 'R5 右窗。拟用 reactionJump 上高台；重力翻越也可（软门）。',
+  }),
 ]);
 
 export const INTENT_DEFAULTS = Object.freeze({
-  zh: '只转重力矢量、不转镜头。I 落体教学 → II 摩擦行走（R4）→ reactionJump → III 任意角重力场。旧 R3 保留在 R1 下方；新摩擦房为 R4（R2 正上方）。',
-  en: 'Rotate gravity vector only; camera stays axis-aligned. Teach fall body (I) before friction walk (II in R4). Keep legacy R3 under R1; new friction room is R4 above R2.',
+  zh: '只转重力矢量、不转镜头。I 落体 → II 摩擦（R4）→ II+ 跳跃（R5）→ III 任意角重力场（R6）。旧 R3 在 R1 下方；R4 在 R2 正上方；R5/R6 在 R4 右侧。',
+  en: 'Rotate gravity vector only; camera stays axis-aligned. I fall → II walk (R4) → II+ jump (R5) → III field (R6). Legacy R3 under R1; R4 above R2; R5/R6 east of R4.',
 });
 
 export const COMPAT_DEFAULTS = Object.freeze({
@@ -304,6 +355,7 @@ export const COMPAT_DEFAULTS = Object.freeze({
     'layoutRevision 5: strip full-height R2_doorframe on load; keep the short catch stub under gate_R2_to_R4.',
     'R3 ceiling openings align to R1 pits only (160–240, 400–480). Seal the middle under R1_floorB.',
     'R3 L/R walls stay sealed even though they share join X 640/1280 — those X values are corridor joins only on the R0–R2 Y band.',
+    'layoutRevision 6: add R5 (jump) at (1920,-360) and R6 (field) at (2560,-360); open R4 right doorway; keep R2 stub + R3 pit seals.',
   ]),
 });
 
@@ -767,9 +819,73 @@ function migrateR3Ceilings(room) {
   return { room: { ...room, solids }, changed: true };
 }
 
+/** Full-height R4_wallR blocks the R5 doorway. Shorten to the lintel. */
+function migrateR4RightDoor(room) {
+  if (room.id !== 'R4' || !Array.isArray(room.solids) || !room.solids.length) {
+    return { room, changed: false };
+  }
+  const wall = room.solids.find((s) => s.id === 'R4_wallR');
+  if (!wall || wall.h < 360 || wall.x < 600) return { room, changed: false };
+  const solids = room.solids.map((s) => (s.id === 'R4_wallR' ? { ...s, h: 200 } : s));
+  return { room: { ...room, solids }, changed: true };
+}
+
+function cloneBakedRoom(room) {
+  return {
+    ...room,
+    solids: room.solids ? room.solids.map((s) => ({ ...s })) : undefined,
+  };
+}
+
+function mergeMissingBakedRooms(rooms) {
+  if (!Array.isArray(rooms)) return { rooms, changed: false };
+  const have = new Set(rooms.map((r) => r.id));
+  let changed = false;
+  const next = [...rooms];
+  for (const baked of ROOM_DESIGN_DEFAULTS) {
+    if (have.has(baked.id)) continue;
+    next.push(cloneBakedRoom(baked));
+    changed = true;
+  }
+  return { rooms: next, changed };
+}
+
+function mergeMissingPickups(pickups) {
+  const src = Array.isArray(pickups) ? pickups : [];
+  const have = new Set(src.map((p) => p.id));
+  let changed = false;
+  const next = [...src];
+  for (const baked of PICKUP_DESIGN_DEFAULTS) {
+    if (have.has(baked.id)) continue;
+    next.push({
+      ...baked,
+      requires: [...(baked.requires || [])],
+      onCollect: {
+        ...baked.onCollect,
+        addItem: baked.onCollect?.addItem ? { ...baked.onCollect.addItem } : undefined,
+      },
+    });
+    changed = true;
+  }
+  return { pickups: next, changed };
+}
+
+function mergeMissingGates(gates) {
+  const src = Array.isArray(gates) ? gates : [];
+  const have = new Set(src.map((g) => g.id));
+  let changed = false;
+  const next = [...src];
+  for (const baked of GATE_DESIGN_DEFAULTS) {
+    if (have.has(baked.id)) continue;
+    next.push({ ...baked, world: baked.world ? { ...baked.world } : undefined });
+    changed = true;
+  }
+  return { gates: next, changed };
+}
+
 /**
- * Replace known-incompatible v4 solids (tall R2_doorframe, pre-pit R3 ceilings).
- * Idempotent on the current bake.
+ * Replace known-incompatible v4 solids (tall R2_doorframe, pre-pit R3 ceilings,
+ * sealed R4 right wall). Idempotent on the current bake.
  */
 export function migrateLegacyRoomSolids(rooms) {
   if (!Array.isArray(rooms)) return { rooms, changed: false };
@@ -785,9 +901,28 @@ export function migrateLegacyRoomSolids(rooms) {
       changed = changed || result.changed;
       return result.room;
     }
+    if (room.id === 'R4') {
+      const result = migrateR4RightDoor(room);
+      changed = changed || result.changed;
+      return result.room;
+    }
     return room;
   });
   return { rooms: next, changed };
+}
+
+/** Fill in R5/R6 + jump/field pickups/gates when an older dump omitted them. */
+export function migrateAbilityChainLayout(sections = {}) {
+  const roomsResult = migrateLegacyRoomSolids(sections.rooms);
+  const missingRooms = mergeMissingBakedRooms(roomsResult.rooms);
+  const pickups = mergeMissingPickups(sections.pickups);
+  const gates = mergeMissingGates(sections.gates);
+  return {
+    rooms: missingRooms.rooms,
+    pickups: pickups.pickups,
+    gates: gates.gates,
+    changed: roomsResult.changed || missingRooms.changed || pickups.changed || gates.changed,
+  };
 }
 
 function sanitizeOnCollect(raw) {
@@ -977,8 +1112,10 @@ function applyImportedObject(obj) {
   if (Array.isArray(gates)) {
     state.sections.gates = sanitizeGates(gates);
   }
-  const migrated = migrateLegacyRoomSolids(state.sections.rooms);
+  const migrated = migrateAbilityChainLayout(state.sections);
   state.sections.rooms = migrated.rooms;
+  state.sections.pickups = migrated.pickups;
+  state.sections.gates = migrated.gates;
   logDesignValidation(validateDesignGraph(state.sections));
   warnMissingGapGateIds(state.sections);
   return { migrated: migrated.changed };

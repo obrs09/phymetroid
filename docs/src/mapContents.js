@@ -8,12 +8,16 @@ export const ROLE_HINT = Object.freeze({
   hub: 'hub',
   preFriction: 'pre-fric',
   frictionLesson: 'fric',
+  jumpLesson: 'jump',
+  fieldLesson: 'field',
   legacyPit: 'pit',
 });
 
 export const PICKUP_MARK = Object.freeze({
   gravityOrb: Object.freeze({ tag: 'G', label: 'grav', color: 0xffeb3b }),
   surfaceWalkOrb: Object.freeze({ tag: 'W', label: 'walk', color: 0x80deea }),
+  reactionJumpOrb: Object.freeze({ tag: 'J', label: 'jump', color: 0xff8a65 }),
+  gravityFieldOrb: Object.freeze({ tag: 'F', label: 'field', color: 0xce93d8 }),
 });
 
 export function pointInRoom(x, y, room) {
@@ -44,6 +48,14 @@ function gateEdge(gate, room) {
   if (gate.kind === 'floorGap') {
     return gate.fromRoomId === room.id ? 'bottom' : 'top';
   }
+  if (gate.kind === 'sidePassage') {
+    if (gate.world && room) {
+      const cx = gate.world.x + gate.world.w / 2;
+      if (cx >= room.x + room.w - 8) return 'right';
+      if (cx <= room.x + 8) return 'left';
+    }
+    return gate.fromRoomId === room.id ? 'right' : 'left';
+  }
   if (gate.world && room) {
     const cy = gate.world.y + gate.world.h / 2;
     if (cy <= room.y + 8) return 'top';
@@ -57,9 +69,11 @@ function gateWorldOnRoom(gate, room) {
     return { x: gate.world.x + gate.world.w / 2, y: gate.world.y + gate.world.h / 2 };
   }
   const edge = gateEdge(gate, room);
-  const x = room.x + room.w / 2;
-  const y = edge === 'bottom' ? room.y + room.h : room.y;
-  return { x, y };
+  const midY = room.y + room.h - 40;
+  if (edge === 'bottom') return { x: room.x + room.w / 2, y: room.y + room.h };
+  if (edge === 'left') return { x: room.x, y: midY };
+  if (edge === 'right') return { x: room.x + room.w, y: midY };
+  return { x: room.x + room.w / 2, y: room.y };
 }
 
 /**

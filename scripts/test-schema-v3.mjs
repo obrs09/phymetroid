@@ -17,18 +17,23 @@ import {
   getPlayerDesign,
   getProgressDesign,
   getRooms,
+  migrateAbilityChainLayout,
   migrateLegacyRoomSolids,
   resetDesignToDefaults,
   validateDesignGraph,
 } from '../src/designConfig.js';
 import { ROOMS } from '../src/rooms.js';
 import {
+  canonicalizeDown,
   composeVelocity,
+  downAngleDeg,
+  downArrowGlyph,
   downArrowRotation,
   downVector,
   DOWN_ARROW_GLYPH,
   gravityAccel,
   rotateCardinal,
+  rotateDown,
   snapDownToNearestAxis,
   walkTangent,
 } from '../src/gravity.js';
@@ -57,6 +62,7 @@ import {
   getRunState,
   hasAbility,
   resetRun,
+  trySetGravityDown,
   unlockAbility,
 } from '../src/runState.js';
 
@@ -72,8 +78,8 @@ section('schemaVersion 4 export shape', () => {
   const dump = buildExportPayload();
   assert.equal(dump.schemaVersion, 4);
   assert.equal(SCHEMA_VERSION, 4);
-  assert.equal(dump.layoutRevision, 5);
-  assert.equal(LAYOUT_REVISION, 5);
+  assert.equal(dump.layoutRevision, 6);
+  assert.equal(LAYOUT_REVISION, 6);
   assert.equal(dump.game, 'phymetroid');
   assert.equal(dump.logicalW, 640);
   assert.equal(dump.logicalH, 360);
@@ -108,6 +114,8 @@ section('schemaVersion 4 export shape', () => {
   ]);
   assert.equal(s.progress.abilityPhases.gravityFall, 'exploration');
   assert.equal(s.progress.abilityPhases.surfaceWalk, 'frictionLesson');
+  assert.equal(s.progress.abilityPhases.reactionJump, 'jumpLesson');
+  assert.equal(s.progress.abilityPhases.gravityField, 'fieldLesson');
   assert.ok(s.progress.pathIntent.en);
   assert.ok(Array.isArray(s.progress.pathIntent.zh));
   assert.ok(s.abilities.gravityFall.why);
@@ -136,12 +144,39 @@ section('rooms / pickups / gates coords', () => {
   const pit = getGates().find((g) => g.id === 'gate_R1_to_R3');
   assert.equal(pit.world, undefined, 'gate_R1_to_R3 has no invented world rect');
   assert.equal(pit.kind, 'floorGap');
+  assert.deepEqual(
+    { x: rooms.R5.x, y: rooms.R5.y, w: rooms.R5.w, h: rooms.R5.h },
+    { x: 1920, y: -360, w: 640, h: 360 }
+  );
+  assert.deepEqual(
+    { x: rooms.R6.x, y: rooms.R6.y, w: rooms.R6.w, h: rooms.R6.h },
+    { x: 2560, y: -360, w: 640, h: 360 }
+  );
+  const jumpOrb = getPickups().find((p) => p.id === 'reactionJumpOrb');
+  assert.ok(jumpOrb);
+  assert.equal(jumpOrb.x, 2000);
+  assert.equal(jumpOrb.y, -80);
+  assert.equal(jumpOrb.ability, 'reactionJump');
+  assert.deepEqual(jumpOrb.requires, ['surfaceWalk']);
+  const fieldOrb = getPickups().find((p) => p.id === 'gravityFieldOrb');
+  assert.ok(fieldOrb);
+  assert.equal(fieldOrb.x, 2680);
+  assert.equal(fieldOrb.y, -160);
+  assert.equal(fieldOrb.ability, 'gravityField');
+  assert.deepEqual(fieldOrb.requires, ['reactionJump']);
+  const side = getGates().find((g) => g.id === 'gate_R4_to_R5');
+  assert.deepEqual(side.world, { x: 1904, y: -160, w: 32, h: 128 });
+  const window = getGates().find((g) => g.id === 'gate_R5_to_R6');
+  assert.deepEqual(window.world, { x: 2544, y: -160, w: 32, h: 80 });
+  assert.equal(window.requireAbility, 'reactionJump');
 });
 
 section('v4 rooms[].solids source counts + local/world math', () => {
   const rooms = getRooms();
-  assert.deepEqual(countRoomSourceSolids(rooms), { R0: 5, R1: 6, R2: 7, R3: 8, R4: 7 });
+  assert.deepEqual(countRoomSourceSolids(rooms), { R0: 5, R1: 6, R2: 7, R3: 8, R4: 7, R5: 6, R6: 6 });
   const r4 = rooms.find((r) => r.id === 'R4');
+  const wallR = r4.solids.find((s) => s.id === 'R4_wallR');
+  assert.ok(wallR.h <= 200, 'R4 right wall is a lintel, not a sealed door');
   assert.equal(r4.y, -360);
   const floor = r4.solids.find((s) => s.id === 'R4_floor');
   assert.equal(floor.space, 'local');
@@ -221,7 +256,7 @@ section('v3 rooms without solids fall back to hardcode', () => {
   });
   const rooms = getRooms();
   assert.equal(rooms.find((r) => r.id === 'R0').solids, undefined);
-  assert.deepEqual(countRoomSourceSolids(rooms), { R0: 0, R1: 0, R2: 0, R3: 0, R4: 0 });
+  assert.deepEqual(countRoomSourceSolids(rooms), { R0: 0, R1: 0, R2: 0, R3: 0, R4: 0, R5: 0, R6: 0 });
   const rects = listWorldSolidRects(rooms, getGates());
   const joins = corridorJoinXs(rooms);
   assert.deepEqual(joins, [640, 1280]);
@@ -526,6 +561,10 @@ section('ability grants stack I then II', () => {
   assert.equal(g.canJump, false);
   unlockAbility('reactionJump');
   assert.equal(getAbilityGrants().canJump, true);
+  assert.equal(getAbilityGrants().canWallJump, true);
+  unlockAbility('gravityField');
+  assert.equal(getAbilityGrants().gravityDirections, 'arbitrary');
+  assert.equal(getAbilityGrants().toggleAnytime, true);
   resetRun();
 });
 
@@ -535,6 +574,10 @@ section('phase mapping', () => {
   assert.equal(getRunState().phase, 'exploration');
   advancePhaseOnAbility('surfaceWalk');
   assert.equal(getRunState().phase, 'frictionLesson');
+  advancePhaseOnAbility('reactionJump');
+  assert.equal(getRunState().phase, 'jumpLesson');
+  advancePhaseOnAbility('gravityField');
+  assert.equal(getRunState().phase, 'fieldLesson');
   resetRun();
 });
 
@@ -551,6 +594,27 @@ section('gravity vector math (no camera)', () => {
   assert.equal(snapDownToNearestAxis(10, 1), 'right');
   assert.equal(snapDownToNearestAxis(-1, -10), 'up');
   assert.equal(getGravityDown(), 'down');
+  const s = Math.SQRT1_2;
+  assert.ok(Math.abs(downVector(45).x - s) < 1e-9);
+  assert.ok(Math.abs(downVector(45).y - s) < 1e-9);
+  assert.equal(canonicalizeDown(90), 'right');
+  assert.equal(canonicalizeDown(45), 45);
+  assert.equal(downAngleDeg('left'), 270);
+  assert.equal(rotateDown('down', 1, 45), 45);
+  assert.equal(rotateDown(45, 1, 45), 'right');
+  assert.equal(downArrowGlyph(45), '↘');
+  resetRun();
+  unlockAbility('gravityFall');
+  const snapped = trySetGravityDown(80, true);
+  assert.equal(snapped.down, 'right', 'pre-field 80° snaps to nearest cardinal');
+  unlockAbility('surfaceWalk');
+  unlockAbility('reactionJump');
+  unlockAbility('gravityField');
+  const diag = trySetGravityDown(45, false);
+  assert.equal(diag.changed, true);
+  assert.equal(diag.down, 45);
+  assert.equal(getGravityDown(), 45);
+  resetRun();
 });
 
 section('R0-R1-R2 corridor joins are not sealed', () => {
@@ -609,8 +673,26 @@ section('visited map contents / unexplored stay empty', () => {
     rooms,
   });
   assert.ok(r0.pickups.some((p) => p.id === 'gravityOrb' && p.tag === 'G'));
+  const r5 = describeRoomMapContents(rooms.find((r) => r.id === 'R5'), {
+    visited: true,
+    pickups,
+    gates,
+    rooms,
+  });
+  assert.equal(r5.role, 'jump');
+  assert.ok(r5.pickups.some((p) => p.id === 'reactionJumpOrb' && p.tag === 'J'));
+  assert.ok(r5.gates.some((g) => g.dest === 'R6' && g.edge === 'right'));
+  const r6 = describeRoomMapContents(rooms.find((r) => r.id === 'R6'), {
+    visited: true,
+    pickups,
+    gates,
+    rooms,
+  });
+  assert.equal(r6.role, 'field');
+  assert.ok(r6.pickups.some((p) => p.id === 'gravityFieldOrb' && p.tag === 'F'));
   const all = describeMapContents(rooms, { visitedIds: ['R0'], pickups, gates });
   assert.equal(all.R4.pickups.length, 0);
+  assert.equal(all.R5.pickups.length, 0);
   assert.ok(all.R0.pickups.length > 0);
 });
 
@@ -621,6 +703,42 @@ section('gravity down flash math (screen-space, no camera)', () => {
   assert.equal(downArrowRotation('up'), Math.PI);
   assert.equal(downArrowRotation('left'), Math.PI / 2);
   assert.equal(downArrowRotation('right'), -Math.PI / 2);
+});
+
+section('rev-5 dump gains R5/R6 and opens R4 doorway', () => {
+  const oldDump = buildExportPayload();
+  oldDump.layoutRevision = 5;
+  oldDump.sections.rooms = oldDump.sections.rooms.filter((r) => r.id !== 'R5' && r.id !== 'R6');
+  oldDump.sections.pickups = oldDump.sections.pickups.filter(
+    (p) => p.id !== 'reactionJumpOrb' && p.id !== 'gravityFieldOrb'
+  );
+  oldDump.sections.gates = oldDump.sections.gates.filter(
+    (g) => g.id !== 'gate_R4_to_R5' && g.id !== 'gate_R5_to_R6'
+  );
+  const r4 = oldDump.sections.rooms.find((r) => r.id === 'R4');
+  const wall = r4.solids.find((s) => s.id === 'R4_wallR');
+  wall.h = 360;
+
+  applyDesignConfig(oldDump);
+  const rooms = Object.fromEntries(getRooms().map((r) => [r.id, r]));
+  assert.ok(rooms.R5, 'R5 restored');
+  assert.ok(rooms.R6, 'R6 restored');
+  assert.equal(rooms.R5.x, 1920);
+  assert.equal(rooms.R6.x, 2560);
+  assert.equal(rooms.R4.solids.find((s) => s.id === 'R4_wallR').h, 200);
+  assert.ok(getPickups().some((p) => p.id === 'reactionJumpOrb'));
+  assert.ok(getPickups().some((p) => p.id === 'gravityFieldOrb'));
+  assert.ok(getGates().some((g) => g.id === 'gate_R4_to_R5'));
+  const { changed } = migrateAbilityChainLayout(getRooms() && {
+    rooms: getRooms(),
+    pickups: getPickups(),
+    gates: getGates(),
+  });
+  assert.equal(changed, false, 'migration is idempotent on the current bake');
+  const r2 = getRooms().find((r) => r.id === 'R2');
+  const door = r2.solids.find((s) => s.id === 'R2_doorframe');
+  assert.deepEqual({ x: door.x, y: door.y, w: door.w, h: door.h }, { x: 320, y: 264, w: 24, h: 64 });
+  resetDesignToDefaults();
 });
 
 section('abilities design not mixed into feel', () => {

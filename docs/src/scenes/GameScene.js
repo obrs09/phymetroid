@@ -2,6 +2,7 @@ import Phaser from '../phaser-shim.js';
 import { GAME_W, GAME_H, getWorldBounds, findRoomAt, UI_FONT_LG, UI_FONT_MD, UI_FONT_SM, px } from '../rooms.js';
 import { applyPlayerFeelLimits, createPlayer } from '../player.js';
 import {
+  applyFeel,
   getFeel,
   getGates,
   getPickups,
@@ -19,9 +20,10 @@ import {
   composeVelocity,
   isSupportedOnDown,
   isTouchingWall,
-  rotateCardinal,
+  rotateDown,
   splitVelocity,
   tagFixed,
+  wallJumpWalkSign,
 } from '../gravity.js';
 import {
   ABILITY,
@@ -52,7 +54,13 @@ const WALL_SLIDE_FALL_FACTOR = 0.4;
 const PICKUP_COLORS = {
   gravityOrb: { fill: 0xffeb3b, stroke: 0xfff59d },
   surfaceWalkOrb: { fill: 0x80deea, stroke: 0xe0f7fa },
+  reactionJumpOrb: { fill: 0xff8a65, stroke: 0xffccbc },
+  gravityFieldOrb: { fill: 0xce93d8, stroke: 0xf3e5f5 },
 };
+
+const FIELD_ROTATE_DEG = 45;
+const FIELD_ROTATE_FINE_DEG = 15;
+const FIELD_MAG_STEP = 40;
 
 function parseHexColor(hex, fallback) {
   if (typeof hex !== 'string') return fallback;
@@ -63,8 +71,9 @@ function parseHexColor(hex, fallback) {
 
 /**
  * Metroidvania prototype:
- * float → gravityFall (falling body) → cardinal gravity to R2 → flip up into R4
- * → surfaceWalk (friction + wall slide) → room-snap camera → M map → F1 feel.
+ * float → gravityFall → cardinal gravity to R2 → flip up into R4
+ * → surfaceWalk → R5 reactionJump → R6 gravityField.
+ * Camera room-snaps; gravity vector only (never rotates).
  *
  * Gravity rotates the accel vector only. Camera stays axis-aligned.
  */
@@ -119,6 +128,9 @@ export class GameScene extends Phaser.Scene {
       j: Phaser.Input.Keyboard.KeyCodes.J,
       k: Phaser.Input.Keyboard.KeyCodes.K,
       l: Phaser.Input.Keyboard.KeyCodes.L,
+      shift: Phaser.Input.Keyboard.KeyCodes.SHIFT,
+      bracketLeft: Phaser.Input.Keyboard.KeyCodes.OPEN_BRACKET,
+      bracketRight: Phaser.Input.Keyboard.KeyCodes.CLOSED_BRACKET,
     });
 
     this.statusText = addHudText(this, GAME_W / 2, px(28), '', {
@@ -184,8 +196,8 @@ export class GameScene extends Phaser.Scene {
           if (room) this.snapCameraToRoom(room, true);
           return window.__PHYMETROID_DEBUG__.pos();
         },
-        setDown: (axis) => {
-          const result = trySetGravityDown(axis, true);
+        setDown: (axis, supported = true) => {
+          const result = trySetGravityDown(axis, supported);
           this.syncGravityFromState();
           if (result.changed) this.flashGravityDown(result.down);
           return { ...result, ...window.__PHYMETROID_DEBUG__.pos() };
@@ -211,7 +223,10 @@ export class GameScene extends Phaser.Scene {
     if (!grants.hasGravity) {
       return 'NUDGE TO YELLOW: GRAVITY FALL  |  M MAP  |  F1 FEEL  |  F FULL';
     }
-    const grav = 'Q/E ROT  IJKL SET DOWN';
+    const field = grants.gravityDirections === 'arbitrary';
+    const grav = field
+      ? 'Q/E 45°  SHIFT+Q/E 15°  IJKL  [ ] MAG  (air ok)'
+      : 'Q/E ROT  IJKL SET DOWN';
     if (grants.canJump) return `A/D WALK  W/SPACE JUMP  ${grav}  M  F1`;
     if (grants.canWalk) return `A/D WALK/SLIDE  ${grav}  M MAP  F1 FEEL`;
     return `FALL BODY  ${grav}  (no walk/jump)  M MAP  F1`;
@@ -266,6 +281,8 @@ export class GameScene extends Phaser.Scene {
       R2: 0x1f2f4d,
       R3: 0x142038,
       R4: 0x14302a,
+      R5: 0x2a2414,
+      R6: 0x241428,
     };
     const rooms = this.rooms();
     for (const room of rooms) {
@@ -380,10 +397,26 @@ export class GameScene extends Phaser.Scene {
       for (const gate of contents.gates) {
         const gx = ox + (gate.x - minX) * scale;
         const gy = oy + (gate.y - minY) * scale;
-        const inward = gate.edge === 'bottom' ? -1 : 1;
-        const notch = this.add.rectangle(gx, gy + inward * px(2), px(10), px(4), 0xffe082, 1);
+          let notchX = gx;
+        let notchY = gy;
+        let destX = gx;
+        let destY = gy;
+        if (gate.edge === 'bottom') {
+          notchY += -px(2);
+          destY += -px(8);
+        } else if (gate.edge === 'left') {
+          notchX += px(2);
+          destX += px(10);
+        } else if (gate.edge === 'right') {
+          notchX += -px(2);
+          destX += -px(10);
+        } else {
+          notchY += px(2);
+          destY += px(8);
+        }
+        const notch = this.add.rectangle(notchX, notchY, px(10), px(4), 0xffe082, 1);
         this.mapRoot.add(notch);
-        const dest = addHudText(this, gx, gy + inward * px(8), gate.dest, {
+        const dest = addHudText(this, destX, destY, gate.dest, {
           fontSize: UI_FONT_SM,
           color: '#ffe082',
         }).setOrigin(0.5, 0.5);
@@ -403,7 +436,7 @@ export class GameScene extends Phaser.Scene {
       this,
       GAME_W / 2,
       GAME_H - px(18),
-      'dark=unseen  G/W=orbs  gold=gate  visited shows contents',
+      'dark=unseen  G/W/J/F=orbs  gold=gate  visited shows contents',
       {
         fontSize: UI_FONT_SM,
         color: '#78909c',
@@ -532,8 +565,13 @@ export class GameScene extends Phaser.Scene {
   onPickup(_player, pickup) {
     if (!pickup.active) return;
     const spec = pickup.getData('pickup');
+    if (!spec) {
+      pickup.destroy();
+      return;
+    }
+    const needs = spec.requires || [];
+    if (needs.some((id) => !hasAbility(id))) return;
     pickup.destroy();
-    if (!spec) return;
 
     const ability = spec.onCollect?.unlockAbility || spec.ability;
     if (ability) {
@@ -574,9 +612,13 @@ export class GameScene extends Phaser.Scene {
   tryJump(now, feel, down) {
     const grants = getAbilityGrants();
     if (!grants.canJump) return false;
-    if (now > this.coyoteUntil) return false;
+    const grounded = now <= this.coyoteUntil;
+    const wallSign =
+      grants.canWallJump && !grounded ? wallJumpWalkSign(this.player.body, down) : 0;
+    if (!grounded && wallSign === 0) return false;
     const parts = splitVelocity(this.player.body.velocity.x, this.player.body.velocity.y, down);
-    const next = composeVelocity(down, parts.walk, feel.jumpVelocity);
+    const walk = wallSign !== 0 ? wallSign * feel.moveSpeed : parts.walk;
+    const next = composeVelocity(down, walk, feel.jumpVelocity);
     this.player.setVelocity(next.x, next.y);
     this.coyoteUntil = 0;
     this.jumpBufferUntil = 0;
@@ -597,13 +639,25 @@ export class GameScene extends Phaser.Scene {
     }
 
     const down = getGravityDown();
+    const grants = getAbilityGrants();
+    const field = grants.gravityDirections === 'arbitrary';
+    const shift = Boolean(this.keys.shift?.isDown);
+    const step = field ? (shift ? FIELD_ROTATE_FINE_DEG : FIELD_ROTATE_DEG) : 90;
     let next = null;
-    if (Phaser.Input.Keyboard.JustDown(this.keys.q)) next = rotateCardinal(down, -1);
-    else if (Phaser.Input.Keyboard.JustDown(this.keys.e)) next = rotateCardinal(down, 1);
+    if (Phaser.Input.Keyboard.JustDown(this.keys.q)) next = rotateDown(down, -1, step);
+    else if (Phaser.Input.Keyboard.JustDown(this.keys.e)) next = rotateDown(down, 1, step);
     else if (Phaser.Input.Keyboard.JustDown(this.keys.i)) next = 'up';
     else if (Phaser.Input.Keyboard.JustDown(this.keys.k)) next = 'down';
     else if (Phaser.Input.Keyboard.JustDown(this.keys.j)) next = 'left';
     else if (Phaser.Input.Keyboard.JustDown(this.keys.l)) next = 'right';
+
+    if (field && grants.adjustableMagnitude) {
+      if (Phaser.Input.Keyboard.JustDown(this.keys.bracketLeft)) {
+        applyFeel({ gravityY: getFeel().gravityY - FIELD_MAG_STEP });
+      } else if (Phaser.Input.Keyboard.JustDown(this.keys.bracketRight)) {
+        applyFeel({ gravityY: getFeel().gravityY + FIELD_MAG_STEP });
+      }
+    }
 
     if (!next) return;
     const result = trySetGravityDown(next, supported);
