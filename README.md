@@ -144,7 +144,8 @@ Keys are **camelCase**. Feel mapping: `moveSpeed` walk speed, `airControl` airbo
 - Boot: if `localStorage['phymetroid.designConfig']` is valid JSON, it is applied.
 - Console / bot: `window.__PHYMETROID_APPLY_DESIGN__(objOrJsonString)` or `applyDesignConfig(obj)` from `src/designConfig.js`.
 - `window.__PHYMETROID_GET_DESIGN__()` returns the current export payload.
-- `window.__PHYMETROID_GET_RUN__()` returns the live run snapshot (hp, abilities, items, phase, flags, visitedRooms, deaths).
+- `window.__PHYMETROID_GET_RUN__()` returns the live run snapshot (hp, abilities, items, phase, flags, visitedRooms, deaths, gravityDown).
+- `window.__PHYMETROID_DEBUG__` — `{ pos, warp, setDown, camRotation, toggleFeel, toggleMap }` for console / bot checks. `camRotation()` stays `0`.
 - `window.__PHYMETROID_TOGGLE_FULLSCREEN__()` toggles the Fullscreen API.
 
 导入先保持最小：启动读 localStorage；程序用上面的全局函数。完整文件选择器留给以后的策划 bot。

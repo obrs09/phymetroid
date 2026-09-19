@@ -175,6 +175,13 @@ export class GameScene extends Phaser.Scene {
           if (room) this.snapCameraToRoom(room, true);
           return window.__PHYMETROID_DEBUG__.pos();
         },
+        setDown: (axis) => {
+          const result = trySetGravityDown(axis, true);
+          this.syncGravityFromState();
+          return { ...result, ...window.__PHYMETROID_DEBUG__.pos() };
+        },
+        toggleFeel: () => this.toggleDebug(),
+        toggleMap: () => this.toggleMap(),
       };
     }
 
