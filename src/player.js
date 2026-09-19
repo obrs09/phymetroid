@@ -1,23 +1,24 @@
 import Phaser from 'phaser';
+import { FEEL_DEFAULTS, getFeel } from './designConfig.js';
 
 export const PLAYER_W = 12;
 export const PLAYER_H = 16;
 
 /**
- * Feel targets (Metroid-ish, still readable on 320×180):
- * - Higher gravity → less floaty hang time
- * - Stronger jump impulse → still clears a 24px block
- * - Coyote + buffer → jumps feel fair at ledge edges
- * - Variable jump → tap = short hop, hold = full jump
+ * Default feel targets (Metroid-ish, still readable on 320×180).
+ * Live values live in designConfig — GameScene / createPlayer must call getFeel().
+ * These exports stay as the documented defaults (not the live session values).
  */
-export const MOVE_SPEED = 110;
-export const AIR_CONTROL = 0.85; // fraction of MOVE_SPEED while airborne
-export const JUMP_VELOCITY = -275;
-export const JUMP_CUT_MULTIPLIER = 0.45; // on jump release, keep this * upward speed if still rising
-export const GRAVITY_Y = 980;
-export const MAX_FALL_SPEED = 320;
-export const COYOTE_MS = 90;
-export const JUMP_BUFFER_MS = 100;
+export const MOVE_SPEED = FEEL_DEFAULTS.moveSpeed;
+export const AIR_CONTROL = FEEL_DEFAULTS.airControl;
+export const JUMP_VELOCITY = FEEL_DEFAULTS.jumpVelocity;
+export const JUMP_CUT_MULTIPLIER = FEEL_DEFAULTS.jumpCutMultiplier;
+export const GRAVITY_Y = FEEL_DEFAULTS.gravityY;
+export const MAX_FALL_SPEED = FEEL_DEFAULTS.maxFallSpeed;
+export const COYOTE_MS = FEEL_DEFAULTS.coyoteMs;
+export const JUMP_BUFFER_MS = FEEL_DEFAULTS.jumpBufferMs;
+export const FLOAT_NUDGE = FEEL_DEFAULTS.floatNudge;
+export const MAX_VELOCITY_X_FACTOR = 1.15;
 
 /**
  * Create a simple rectangle texture for the player (no external art).
@@ -36,6 +37,11 @@ export function ensurePlayerTexture(scene, key = 'player') {
   return key;
 }
 
+export function applyPlayerFeelLimits(player, feel = getFeel()) {
+  if (!player) return;
+  player.setMaxVelocity(feel.moveSpeed * MAX_VELOCITY_X_FACTOR, feel.maxFallSpeed);
+}
+
 /**
  * @param {Phaser.Scene} scene
  * @param {number} x
@@ -46,7 +52,7 @@ export function createPlayer(scene, x, y) {
   const body = scene.physics.add.sprite(x, y, key);
   body.setCollideWorldBounds(true);
   body.setBounce(0);
-  body.setMaxVelocity(MOVE_SPEED * 1.15, MAX_FALL_SPEED);
+  applyPlayerFeelLimits(body);
   body.body.setSize(PLAYER_W, PLAYER_H);
   body.body.setAllowGravity(false);
   body.setDepth(10);

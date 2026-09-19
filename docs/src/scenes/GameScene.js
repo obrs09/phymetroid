@@ -1,19 +1,12 @@
 import Phaser from '../phaser-shim.js';
 import { ROOMS, GAME_W, GAME_H, getWorldBounds, findRoomAt } from '../rooms.js';
-import {
-  createPlayer,
-  MOVE_SPEED,
-  AIR_CONTROL,
-  JUMP_VELOCITY,
-  JUMP_CUT_MULTIPLIER,
-  GRAVITY_Y,
-  COYOTE_MS,
-  JUMP_BUFFER_MS,
-} from '../player.js';
+import { applyPlayerFeelLimits, createPlayer } from '../player.js';
+import { getFeel, subscribeDesign } from '../designConfig.js';
+import { FeelDebugPanel } from '../feelDebugPanel.js';
 
 /**
  * First-room Metroidvania prototype:
- * float → gravity pickup → walk/jump → room-snap camera → M map.
+ * float → gravity pickup → walk/jump → room-snap camera → M map → F1 feel debug.
  *
  * Future tilemap stub: replace buildSolids() with Phaser Tilemap / Tiled JSON.
  */
@@ -68,21 +61,8 @@ export class GameScene extends Phaser.Scene {
       .setDepth(100)
       .setVisible(false);
 
-    this.debugText = this.add
-      .text(4, 4, '', {
-        fontFamily: 'monospace',
-        fontSize: '8px',
-        color: '#b2ff59',
-        backgroundColor: '#000000aa',
-        padding: { x: 3, y: 2 },
-        resolution: 1,
-      })
-      .setScrollFactor(0)
-      .setDepth(200)
-      .setVisible(false);
-
     this.hintText = this.add
-      .text(GAME_W / 2, GAME_H - 12, 'NUDGE TO YELLOW: GRAVITY  |  M MAP', {
+      .text(GAME_W / 2, GAME_H - 12, 'NUDGE TO YELLOW: GRAVITY  |  M MAP  |  F1 FEEL', {
         fontFamily: 'monospace',
         fontSize: '8px',
         color: '#90a4ae',
@@ -93,14 +73,33 @@ export class GameScene extends Phaser.Scene {
       .setDepth(100);
 
     this.buildMapOverlay();
+    this.debugPanel = new FeelDebugPanel(this);
+    this._unsubDesign = subscribeDesign(() => this.applyLiveFeel());
+    this.applyLiveFeel();
 
     const startRoom = findRoomAt(this.player.x, this.player.y) || ROOMS[0];
     this.markVisited(startRoom);
     this.snapCameraToRoom(startRoom, true);
 
-    this.input.keyboard.on('keydown-F1', () => this.toggleDebug());
+    this.input.keyboard.on('keydown-F1', (e) => {
+      if (e && typeof e.preventDefault === 'function') e.preventDefault();
+      this.toggleDebug();
+    });
     this.input.keyboard.on('keydown-BACKTICK', () => this.toggleDebug());
     this.input.keyboard.on('keydown-M', () => this.toggleMap());
+
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      this._unsubDesign?.();
+    });
+  }
+
+  applyLiveFeel() {
+    const feel = getFeel();
+    applyPlayerFeelLimits(this.player, feel);
+    if (this.gravityOn) {
+      this.physics.world.gravity.y = feel.gravityY;
+    }
+    this.debugPanel?.refreshFields();
   }
 
   drawRoomBackgrounds() {
@@ -198,12 +197,39 @@ export class GameScene extends Phaser.Scene {
     if (room) this.visitedRooms.add(room.id);
   }
 
+  closeMap() {
+    if (!this.mapVisible) return;
+    this.mapVisible = false;
+    this.mapRoot.setVisible(false);
+  }
+
+  closeDebug() {
+    if (!this.debugVisible) return;
+    this.debugVisible = false;
+    this.debugPanel.setVisible(false);
+    if (this.physics.world.isPaused) this.physics.world.resume();
+  }
+
   toggleMap() {
+    if (!this.mapVisible) this.closeDebug();
     this.mapVisible = !this.mapVisible;
     this.mapRoot.setVisible(this.mapVisible);
     if (this.mapVisible) {
       this.refreshMapOverlay();
       this.player.setVelocity(0, 0);
+    }
+  }
+
+  toggleDebug() {
+    if (!this.debugVisible) this.closeMap();
+    this.debugVisible = !this.debugVisible;
+    this.debugPanel.setVisible(this.debugVisible);
+    if (this.debugVisible) {
+      this.player.setVelocity(0, 0);
+      this.physics.world.pause();
+      this.debugPanel.refreshFields();
+    } else if (this.physics.world.isPaused) {
+      this.physics.world.resume();
     }
   }
 
@@ -316,18 +342,15 @@ export class GameScene extends Phaser.Scene {
     if (!pickup.active) return;
     pickup.destroy();
     this.gravityOn = true;
-    this.physics.world.gravity.y = GRAVITY_Y;
+    const feel = getFeel();
+    this.physics.world.gravity.y = feel.gravityY;
     this.player.body.setAllowGravity(true);
+    applyPlayerFeelLimits(this.player, feel);
 
     this.statusText.setText('GRAVITY ON');
     this.statusText.setVisible(true);
     this.time.delayedCall(2000, () => this.statusText.setVisible(false));
-    this.hintText.setText('A/D MOVE  W/SPACE JUMP  M MAP  F1 DEBUG');
-  }
-
-  toggleDebug() {
-    this.debugVisible = !this.debugVisible;
-    this.debugText.setVisible(this.debugVisible);
+    this.hintText.setText('A/D MOVE  W/SPACE JUMP  M MAP  F1 FEEL');
   }
 
   snapCameraToRoom(room, instant = false) {
@@ -340,9 +363,9 @@ export class GameScene extends Phaser.Scene {
     else cam.pan(room.x + room.w / 2, room.y + room.h / 2, 180, 'Linear', true);
   }
 
-  tryJump(now) {
+  tryJump(now, feel) {
     if (now > this.coyoteUntil) return false;
-    this.player.setVelocityY(JUMP_VELOCITY);
+    this.player.setVelocityY(feel.jumpVelocity);
     this.coyoteUntil = 0;
     this.jumpBufferUntil = 0;
     this.jumpHeld = true;
@@ -350,17 +373,39 @@ export class GameScene extends Phaser.Scene {
   }
 
   update(time) {
+    const body = this.player.body;
+    const grounded = body.blocked.down || body.touching.down;
+    const now = time;
+    const feel = getFeel();
+
+    const consumeJumpEdges = () => {
+      Phaser.Input.Keyboard.JustDown(this.cursors.up);
+      Phaser.Input.Keyboard.JustDown(this.keys.w);
+      Phaser.Input.Keyboard.JustDown(this.keys.space);
+    };
+
+    if (this.debugVisible) {
+      consumeJumpEdges();
+      this.debugPanel.update(time);
+      this.debugPanel.refreshStatus({
+        room: this.currentRoomId,
+        gravityOn: this.gravityOn,
+        grounded,
+        coyote: Math.max(0, Math.ceil(this.coyoteUntil - now)),
+        x: this.player.x,
+        y: this.player.y,
+      });
+      return;
+    }
+
     if (this.mapVisible) {
+      consumeJumpEdges();
       this.refreshMapOverlay();
       this.player.setVelocityX(0);
       return;
     }
 
-    const body = this.player.body;
-    const grounded = body.blocked.down || body.touching.down;
-    const now = time;
-
-    if (grounded) this.coyoteUntil = now + COYOTE_MS;
+    if (grounded) this.coyoteUntil = now + feel.coyoteMs;
 
     const left = this.cursors.left.isDown || this.keys.a.isDown;
     const right = this.cursors.right.isDown || this.keys.d.isDown;
@@ -376,24 +421,24 @@ export class GameScene extends Phaser.Scene {
       Phaser.Input.Keyboard.JustUp(this.keys.space);
 
     if (this.gravityOn) {
-      const speed = grounded ? MOVE_SPEED : MOVE_SPEED * AIR_CONTROL;
+      const speed = grounded ? feel.moveSpeed : feel.moveSpeed * feel.airControl;
       let vx = 0;
       if (left) vx = -speed;
       else if (right) vx = speed;
       this.player.setVelocityX(vx);
 
-      if (jumpPressed) this.jumpBufferUntil = now + JUMP_BUFFER_MS;
-      if (now <= this.jumpBufferUntil) this.tryJump(now);
+      if (jumpPressed) this.jumpBufferUntil = now + feel.jumpBufferMs;
+      if (now <= this.jumpBufferUntil) this.tryJump(now, feel);
 
       if (jumpReleased && this.jumpHeld && body.velocity.y < 0) {
-        this.player.setVelocityY(body.velocity.y * JUMP_CUT_MULTIPLIER);
+        this.player.setVelocityY(body.velocity.y * feel.jumpCutMultiplier);
         this.jumpHeld = false;
       }
       if (!jumpDown) this.jumpHeld = false;
     } else {
       let vx = 0;
-      if (left) vx = -28;
-      else if (right) vx = 28;
+      if (left) vx = -feel.floatNudge;
+      else if (right) vx = feel.floatNudge;
       this.player.setVelocityX(vx);
       const baseY = this._floatBaseY ?? (this._floatBaseY = this.player.y);
       const bob = Math.sin(this.time.now / 400) * 3;
@@ -403,18 +448,6 @@ export class GameScene extends Phaser.Scene {
     const room = findRoomAt(this.player.x, this.player.y);
     if (room && room.id !== this.currentRoomId) {
       this.snapCameraToRoom(room, true);
-    }
-
-    if (this.debugVisible) {
-      this.debugText.setText(
-        [
-          `room: ${this.currentRoomId ?? '?'}`,
-          `gravity: ${this.gravityOn ? 'ON' : 'OFF'}`,
-          `grounded: ${grounded}`,
-          `coyote: ${Math.max(0, Math.ceil(this.coyoteUntil - now))}`,
-          `pos: ${Math.round(this.player.x)},${Math.round(this.player.y)}`,
-        ].join('\n')
-      );
     }
   }
 }
