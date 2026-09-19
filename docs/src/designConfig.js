@@ -218,7 +218,7 @@ export const PROGRESS_DESIGN_DEFAULTS = Object.freeze({
     zh: Object.freeze([
       'R0：漂浮 → 碰 gravityOrb → 获得 gravityFall（I）。世界重力矢量开启，「下」吸附最近轴；仍不能走/跳。',
       'I 阶段：用四向重力当唯一位移手段（着地时可改方向；空中锁定）。穿过 R1 缺口进入 R2。',
-      'R2→R4：R2 顶开通道（第一扇真门，门禁 requireAbility: gravityFall）。在 R2 着地后把「下」拨到 up，落体「向上」坠入 R4。',
+      'R2→R4：R2 顶开通道（第一扇真门，门禁 requireAbility: gravityFall）。右落到门洞右侧短立柱着地，把「下」拨到 up，落体「向上」坠入 R4。门前不得有通高墙。',
       'R4：摩擦房。左上角 surfaceWalk 拾取 → 获得 II。此后可沿当前「下」行走/扒墙滑。',
       '其后（本 JSON 未摆放拾取）：reactionJump → 再后 gravityField（III）。',
       '旧 R3（R1 正下方）保留探索支线，不改 id，不承担摩擦教学。',

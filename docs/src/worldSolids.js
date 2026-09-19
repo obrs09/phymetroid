@@ -167,6 +167,14 @@ export function solidToWorldRect(room, solid) {
   return { x: room.x + x, y: room.y + y, w, h };
 }
 
+export function rectsOverlap(a, b) {
+  return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+}
+
+export function pointInRect(rect, x, y) {
+  return x >= rect.x && x < rect.x + rect.w && y >= rect.y && y < rect.y + rect.h;
+}
+
 /**
  * Cut a hole on the gate's X span (same as the v3 R2/R4 ceiling-floor gap).
  * Y is ignored so an adjacent R4 floor at y=-32 still opens at gate y=0.
@@ -181,6 +189,27 @@ export function splitRectAroundGate(rect, gap) {
   const rightW = Math.max(0, rect.x + rect.w - rightX);
   if (leftW > 0) out.push({ ...rect, x: rect.x, w: leftW });
   if (rightW > 0) out.push({ ...rect, x: rightX, w: rightW });
+  return out;
+}
+
+/**
+ * Safety pass: any solid that 2D-overlaps a gate.world rect is X-split so the
+ * opening stays walkable. Floor/ceiling slabs that only share the gate's X
+ * (R2 floor at y=328) are left intact.
+ */
+export function punchOverlappingGateRects(rects, gates = []) {
+  const gaps = gates
+    .map((g) => g?.world)
+    .filter((w) => w && [w.x, w.y, w.w, w.h].every(Number.isFinite));
+  let out = rects;
+  for (const gap of gaps) {
+    const next = [];
+    for (const r of out) {
+      if (rectsOverlap(r, gap)) next.push(...splitRectAroundGate(r, gap));
+      else next.push(r);
+    }
+    out = next;
+  }
   return out;
 }
 
@@ -260,10 +289,11 @@ function appendHardcodedRooms(rooms, gates, helpers) {
     addRect(r2.x + px(60), r2.y + px(110), px(40), platH, 0x6d4c41, 'plat');
     addRect(r2.x + px(160), r2.y + px(80), px(40), platH, 0x6d4c41, 'plat');
     addRect(r2.x + px(240), r2.y + r2.h - floorH - px(32), px(32), px(32), 0x795548, 'block');
-    // Doorframe just left of the ceiling gate. A leftward I-mode fall at any
-    // height grounds on this face, then flip down / up through the hole.
+    // Short catch stub on the right edge of the ceiling gate (not a mid-room
+    // wall). A rightward I-mode fall grounds under the hole, then flip to up.
     const frameW = px(12);
-    addRect(gap.x - frameW, r2.y + wallW, frameW, r2.h - floorH - wallW, 0x6d4c41, 'doorframe');
+    const frameH = px(32);
+    addRect(gap.x + gap.w, r2.y + r2.h - floorH - frameH, frameW, frameH, 0x6d4c41, 'doorframe');
   }
 
   const r3 = roomById(rooms, 'R3');
@@ -321,7 +351,7 @@ export function listWorldSolidRects(rooms, gates = []) {
     addRect(r.x, r.y, r.w, r.h, r.color, r.tag);
   }
 
-  return rects;
+  return punchOverlappingGateRects(rects, gates);
 }
 
 /**

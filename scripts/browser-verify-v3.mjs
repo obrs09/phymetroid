@@ -200,27 +200,28 @@ check(
 );
 await page.screenshot({ path: `${OUT}/v3_03b_crossed_r1_r2.png` });
 
-// Doorframe catch: stand near R2 right, fall left into the frame
+// Real I-mode approach: fall right from mid-R2, pass the old wall x, catch the stub under the gate
+const approachSolids = await page.evaluate(() => window.__PHYMETROID_DEBUG__.solidsNear(1496, 20));
+check(
+  'no full-height wall at old R2_doorframe x=1496',
+  !approachSolids.some((s) => s.h > 160 && s.y < 40 && s.y + s.h > 280),
+  JSON.stringify(approachSolids)
+);
 await page.evaluate(() => {
-  window.__PHYMETROID_DEBUG__.warp(1700, 300);
+  window.__PHYMETROID_DEBUG__.warp(1320, 312);
   window.__PHYMETROID_DEBUG__.setDown('down');
 });
-await new Promise((r) => setTimeout(r, 500));
-await page.evaluate(() => window.__PHYMETROID_DEBUG__.setDown('left'));
-await new Promise((r) => setTimeout(r, 900));
+await new Promise((r) => setTimeout(r, 400));
+await page.evaluate(() => window.__PHYMETROID_DEBUG__.setDown('right'));
+await new Promise((r) => setTimeout(r, 1200));
 const onFrame = await page.evaluate(() => window.__PHYMETROID_DEBUG__.pos());
 check(
-  'leftward fall caught on R2 doorframe',
-  onFrame.room === 'R2' && onFrame.x > 1500 && onFrame.x < 1600,
+  'rightward fall passed mid-R2 and caught under the gate',
+  onFrame.room === 'R2' && onFrame.x > 1520 && onFrame.x < 1624,
   JSON.stringify(onFrame)
 );
 await page.screenshot({ path: `${OUT}/v3_04_r2_doorframe.png` });
 
-await page.evaluate(() => {
-  window.__PHYMETROID_DEBUG__.warp(1560, 300);
-  window.__PHYMETROID_DEBUG__.setDown('down');
-});
-await new Promise((r) => setTimeout(r, 400));
 await page.evaluate(() => window.__PHYMETROID_DEBUG__.setDown('up'));
 await new Promise((r) => setTimeout(r, 1100));
 const r4 = await page.evaluate(() => ({
