@@ -424,15 +424,17 @@ check('export uses gravityFall not gravity', feelDump.gravityFall && !feelDump.g
 await page.screenshot({ path: `${OUT}/v3_09_feel_debug.png` });
 
 // F1 debug cheats (1–4 / Shift+1–7). API is always on DEBUG; keys only while F1 open.
+await page.evaluate(() => {
+  for (const id of ['gravityFall', 'surfaceWalk', 'reactionJump', 'gravityField']) {
+    if (window.__PHYMETROID_GET_RUN__().abilities.includes(id)) {
+      window.__PHYMETROID_DEBUG__.toggleAbility(id);
+    }
+  }
+});
 const cheatGrant = await page.evaluate(() => window.__PHYMETROID_DEBUG__.toggleAbility('gravityFall'));
 check('F1 grant gravityFall', cheatGrant.has === true, JSON.stringify(cheatGrant.abilities));
 const cheatRevoke = await page.evaluate(() => window.__PHYMETROID_DEBUG__.toggleAbility('gravityFall'));
 check('F1 revoke gravityFall', cheatRevoke.has === false, JSON.stringify(cheatRevoke.abilities));
-await page.evaluate(() => {
-  window.__PHYMETROID_DEBUG__.toggleAbility('gravityFall');
-  window.__PHYMETROID_DEBUG__.toggleAbility('surfaceWalk');
-  window.__PHYMETROID_DEBUG__.toggleAbility('reactionJump');
-});
 const warped = await page.evaluate(() => window.__PHYMETROID_DEBUG__.warpRoom('R5'));
 check(
   'warpRoom R5 safe spawn',
@@ -451,7 +453,7 @@ await new Promise((r) => setTimeout(r, 150));
 const afterClosedKey = await page.evaluate(() => window.__PHYMETROID_GET_RUN__().abilities.slice());
 check(
   'Digit4 does not toggle field while F1 closed',
-  JSON.stringify(afterClosedKey) === JSON.stringify(beforeKey),
+  JSON.stringify(afterClosedKey) === JSON.stringify(beforeKey) && !afterClosedKey.includes('gravityField'),
   JSON.stringify({ beforeKey, afterClosedKey })
 );
 
