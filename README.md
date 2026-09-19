@@ -11,7 +11,7 @@ Phaser 3 + Vite 独立游戏原型：漂浮开场 → 重力拾取 → 行走跳
 | A / D or ← → | Move left/right **after** gravity / 重力开启后左右移动 |
 | W / Space / ↑ | Jump when grounded **after** gravity / 重力开启且着地后跳跃 |
 | M | Room map overlay / 房间地图 |
-| F1 or `` ` `` (backtick) | Toggle feel debugger (pauses physics) / 开关手感调试（暂停物理） |
+| F1 or `` ` `` (backtick) | Toggle feel debugger (pauses physics). If F1 opens browser help, use backtick. / 开关手感调试（暂停物理）。若 F1 被浏览器抢走，用反引号。 |
 | ↑ ↓ (debugger open) | Select feel field / 选择手感参数 |
 | `[` `]` or `-` `=` or ← → | Adjust selected field; hold **Shift** for a larger step / 调整数值，Shift 大步进 |
 | Click row / `+` `-` | Select field or nudge with the mouse / 鼠标选中或加减 |
