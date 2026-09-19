@@ -26,9 +26,6 @@ export class FeelDebugPanel {
     this.selectedIndex = 0;
     this.toastUntil = 0;
     this.toastMsg = '';
-    this._holdDir = 0;
-    this._holdNext = 0;
-    this._holdArmed = false;
 
     this.root = scene.add.container(0, 0).setScrollFactor(0).setDepth(600).setVisible(false);
 
@@ -81,7 +78,7 @@ export class FeelDebugPanel {
           resolution: 1,
         })
         .setInteractive({ useHandCursor: true });
-      minus.on('pointerdown', () => this.adjust(-1, this.shiftDown()));
+      minus.on('pointerdown', (pointer) => this.adjust(-1, this.shiftDown(pointer?.event)));
       this.root.add(minus);
 
       const plus = scene.add
@@ -92,7 +89,7 @@ export class FeelDebugPanel {
           resolution: 1,
         })
         .setInteractive({ useHandCursor: true });
-      plus.on('pointerdown', () => this.adjust(1, this.shiftDown()));
+      plus.on('pointerdown', (pointer) => this.adjust(1, this.shiftDown(pointer?.event)));
       this.root.add(plus);
 
       return { field, label, minus, plus };
@@ -117,40 +114,76 @@ export class FeelDebugPanel {
       .setOrigin(0.5, 1);
     this.root.add(this.toastText);
 
-    // Reuse scene cursors — a second Key object on the same codes makes JustDown flaky.
-    this.cursors = scene.cursors;
-    this.keys = scene.input.keyboard.addKeys({
-      openBracket: Phaser.Input.Keyboard.KeyCodes.OPEN_BRACKET,
-      closeBracket: Phaser.Input.Keyboard.KeyCodes.CLOSED_BRACKET,
-      minus: Phaser.Input.Keyboard.KeyCodes.MINUS,
-      equals: Phaser.Input.Keyboard.KeyCodes.EQUALS,
-      numAdd: Phaser.Input.Keyboard.KeyCodes.NUMPAD_ADD,
-      numSub: Phaser.Input.Keyboard.KeyCodes.NUMPAD_SUBTRACT,
-      shift: Phaser.Input.Keyboard.KeyCodes.SHIFT,
-      e: Phaser.Input.Keyboard.KeyCodes.E,
-      r: Phaser.Input.Keyboard.KeyCodes.R,
-    });
+    this.shiftKey = scene.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SHIFT);
 
-    scene.input.keyboard.on('keydown-E', () => {
-      if (this.visible) this.exportDump();
-    });
-    scene.input.keyboard.on('keydown-R', () => {
-      if (this.visible) this.resetDefaults();
-    });
+    // Event-based keys (not JustDown polling) so overlay select/adjust
+    // cannot be eaten by GameScene jump-edge consumption.
+    scene.input.keyboard.on('keydown', (event) => this.onKeyDown(event));
 
     this.refreshFields();
     this.refreshHelp();
   }
 
-  shiftDown() {
-    return this.keys.shift.isDown;
+  shiftDown(event) {
+    return Boolean(event?.shiftKey || this.shiftKey?.isDown);
+  }
+
+  /**
+   * @param {KeyboardEvent} event
+   */
+  onKeyDown(event) {
+    if (!this.visible || !event) return;
+    const ev = event.originalEvent || event;
+    const key = ev.key;
+    const code = ev.code;
+    const shift = this.shiftDown(ev);
+
+    if (key === 'ArrowUp' || code === 'ArrowUp') {
+      this.moveSelect(-1);
+      return;
+    }
+    if (key === 'ArrowDown' || code === 'ArrowDown') {
+      this.moveSelect(1);
+      return;
+    }
+    if (
+      key === 'ArrowLeft' ||
+      code === 'ArrowLeft' ||
+      key === '[' ||
+      code === 'BracketLeft' ||
+      key === '-' ||
+      key === '_' ||
+      code === 'Minus' ||
+      code === 'NumpadSubtract'
+    ) {
+      this.adjust(-1, shift);
+      return;
+    }
+    if (
+      key === 'ArrowRight' ||
+      code === 'ArrowRight' ||
+      key === ']' ||
+      code === 'BracketRight' ||
+      key === '=' ||
+      key === '+' ||
+      code === 'Equal' ||
+      code === 'NumpadAdd'
+    ) {
+      this.adjust(1, shift);
+      return;
+    }
+    if (key === 'e' || key === 'E' || code === 'KeyE') {
+      this.exportDump();
+      return;
+    }
+    if (key === 'r' || key === 'R' || code === 'KeyR') {
+      this.resetDefaults();
+    }
   }
 
   setVisible(visible) {
     this.visible = visible;
     this.root.setVisible(visible);
-    this._holdDir = 0;
-    this._holdArmed = false;
     if (visible) {
       this.refreshFields();
       this.refreshHelp();
@@ -230,49 +263,7 @@ export class FeelDebugPanel {
     this.showToast('Reset to defaults');
   }
 
-  decHeld() {
-    const k = this.keys;
-    const c = this.cursors;
-    return c.left.isDown || k.openBracket.isDown || k.minus.isDown || k.numSub.isDown;
-  }
-
-  incHeld() {
-    const k = this.keys;
-    const c = this.cursors;
-    return c.right.isDown || k.closeBracket.isDown || k.equals.isDown || k.numAdd.isDown;
-  }
-
-  /**
-   * @param {number} time
-   */
-  update(time) {
-    if (!this.visible) return;
-
-    if (Phaser.Input.Keyboard.JustDown(this.cursors.up)) this.moveSelect(-1);
-    if (Phaser.Input.Keyboard.JustDown(this.cursors.down)) this.moveSelect(1);
-
-    let dir = 0;
-    if (this.decHeld() && !this.incHeld()) dir = -1;
-    else if (this.incHeld() && !this.decHeld()) dir = 1;
-
-    if (dir === 0) {
-      this._holdDir = 0;
-      this._holdArmed = false;
-      return;
-    }
-
-    const shift = this.shiftDown();
-    if (dir !== this._holdDir) {
-      this._holdDir = dir;
-      this._holdArmed = true;
-      this._holdNext = time + 340;
-      this.adjust(dir, shift);
-      return;
-    }
-
-    if (this._holdArmed && time >= this._holdNext) {
-      this.adjust(dir, shift);
-      this._holdNext = time + 70;
-    }
+  update() {
+    // Status / toast refresh from GameScene; keys are handled on keydown.
   }
 }
