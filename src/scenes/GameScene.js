@@ -516,7 +516,7 @@ export class GameScene extends Phaser.Scene {
       R2: { x: 1400, y: 300 },
       R3: { x: 960, y: 650 },
       R4: { x: 1400, y: -80 },
-      R5: { x: 2000, y: 300 },
+      R5: { x: 2080, y: 300 },
       R6: { x: 2700, y: 300 },
     };
     const pos = SAFE[room.id] || { x: room.x + room.w * 0.35, y: room.y + room.h - 60 };

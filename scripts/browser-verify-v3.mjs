@@ -325,7 +325,7 @@ await page.screenshot({ path: `${OUT}/v4_08_reaction_jump_orb.png` });
 
 await page.evaluate(() => {
   window.__PHYMETROID_DEBUG__.setDown('down');
-  window.__PHYMETROID_DEBUG__.warp(2000, 300);
+  window.__PHYMETROID_DEBUG__.warp(2100, 300);
 });
 await new Promise((r) => setTimeout(r, 500));
 const jump0 = await page.evaluate(() => window.__PHYMETROID_DEBUG__.pos());
@@ -475,7 +475,7 @@ check('F1 revoke gravityFall', cheatRevoke.has === false, JSON.stringify(cheatRe
 const warped = await page.evaluate(() => window.__PHYMETROID_DEBUG__.warpRoom('R5'));
 check(
   'warpRoom R5 safe spawn',
-  warped?.room === 'R5' && warped.x === 2000 && warped.y === 300,
+  warped?.room === 'R5' && warped.x === 2080 && warped.y === 300,
   JSON.stringify(warped)
 );
 const warpPos = await page.evaluate(() => window.__PHYMETROID_DEBUG__.pos());
