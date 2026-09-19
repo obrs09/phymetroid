@@ -67,12 +67,20 @@ const boot = await page.evaluate(() => ({
     id: r.id,
     x: r.x,
     y: r.y,
+    solids: r.solids?.length ?? 0,
   })),
   orb: window.__PHYMETROID_GET_DESIGN__().sections.pickups.find((p) => p.id === 'surfaceWalkOrb'),
   cam: window.__PHYMETROID_DEBUG__.camRotation(),
+  validation: window.__PHYMETROID_VALIDATE_DESIGN__(),
 }));
 
-check('schemaVersion 3', boot.schema === 3, String(boot.schema));
+check('schemaVersion 4', boot.schema === 4, String(boot.schema));
+check(
+  'v4 solid counts',
+  boot.rooms.every((r) => ({ R0: 5, R1: 6, R2: 7, R3: 7, R4: 7 })[r.id] === r.solids),
+  JSON.stringify(boot.rooms)
+);
+check('baked design validates', Array.isArray(boot.validation) && boot.validation.length === 0, JSON.stringify(boot.validation));
 check('logical 640x360', boot.logical.w === 640 && boot.logical.h === 360, JSON.stringify(boot.logical));
 check('R3 under R1', boot.rooms.find((r) => r.id === 'R3')?.y === 360);
 check('R4 above R2', boot.rooms.find((r) => r.id === 'R4')?.x === 1280 && boot.rooms.find((r) => r.id === 'R4')?.y === -360);
@@ -281,7 +289,7 @@ const feelDump = await page.evaluate(() => {
     gravityFall: Boolean(d.sections.abilities.gravityFall),
   };
 });
-check('E-export shape is v3 (GET_DESIGN)', feelDump.schemaVersion === 3);
+check('E-export shape is v4 (GET_DESIGN)', feelDump.schemaVersion === 4);
 check('feel keys unchanged', feelDump.feelKeys.join(',') === 'moveSpeed,airControl,jumpVelocity,jumpCutMultiplier,gravityY,maxFallSpeed,coyoteMs,jumpBufferMs,floatNudge');
 check('rotateCamera false in export', feelDump.rotateCamera === false);
 check('export uses gravityFall not gravity', feelDump.gravityFall && !feelDump.gravityId);

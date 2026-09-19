@@ -111,7 +111,7 @@ F1 调试打开时按 **E** 下载该 JSON（并尽量复制到剪贴板）。�
 
 ```json
 {
-  "schemaVersion": 3,
+  "schemaVersion": 4,
   "game": "phymetroid",
   "logicalW": 640,
   "logicalH": 360,
@@ -122,14 +122,19 @@ F1 调试打开时按 **E** 下载该 JSON（并尽量复制到剪贴板）。�
     "abilities": { "gravityFall": { "tier": "I" }, "surfaceWalk": { "tier": "II" } },
     "player": { "maxHp": 3, "startingAbilities": [], "abilityUnlockOrder": ["gravityFall", "surfaceWalk", "reactionJump", "gravityField"] },
     "progress": { "abilityPhases": { "gravityFall": "exploration", "surfaceWalk": "frictionLesson" }, "pathIntent": {} },
-    "rooms": [{ "id": "R4", "x": 1280, "y": -360, "w": 640, "h": 360 }],
-    "pickups": [{ "id": "surfaceWalkOrb", "x": 1320, "y": -320 }],
-    "gates": [{ "id": "gate_R2_to_R4", "world": { "x": 1520, "y": 0, "w": 80, "h": 16 } }]
+    "rooms": [{
+      "id": "R4", "x": 1280, "y": -360, "w": 640, "h": 360,
+      "solids": [{ "id": "R4_floor", "kind": "floor", "space": "local", "x": 0, "y": 328, "w": 640, "h": 32, "gapGateId": "gate_R2_to_R4" }]
+    }],
+    "pickups": [{ "id": "surfaceWalkOrb", "ability": "surfaceWalk", "roomId": "R4", "x": 1320, "y": -320 }],
+    "gates": [{ "id": "gate_R2_to_R4", "fromRoomId": "R2", "toRoomId": "R4", "world": { "x": 1520, "y": 0, "w": 80, "h": 16 } }]
   }
 }
 ```
 
-**Compatibility / 兼容：** `schemaVersion` 3. v1 `{ sections: { feel } }` and v2 player/progress dumps still apply; missing sections keep current values. Pixel feel numbers are already 640×360 (WORLD_SCALE×2) — **do not re-scale**. Legacy `"gravity"` in `startingAbilities` / unlock lists maps to `"gravityFall"`. Older importers that only read `sections.feel` can ignore the new keys.
+**Compatibility / 兼容：** `schemaVersion` 4. v1 `{ sections: { feel } }`, v2 player/progress, and v3 rooms-without-solids dumps still apply; missing sections keep current values. If `rooms[i].solids` is empty, the engine falls back to the v3 hardcoded layout in `worldSolids.js`. Pixel feel numbers are already 640×360 (WORLD_SCALE×2) — **do not re-scale**. Legacy `"gravity"` in `startingAbilities` / unlock lists maps to `"gravityFall"`. Feel debugger keys are unchanged. Older importers that only read `sections.feel` can ignore the new keys.
+
+Default Pages boot embeds `src/design/default-v4.json` (no manual paste). Solids default to `space: "local"` (world = room origin + xy). `space: "world"` is used as-is (R2 doorframe). `gapGateId` cuts a hole only when that gate has a `world` rect (`gate_R2_to_R4`). `gate_R1_to_R3` has no world — R1→R3 openings are the pits between `R1_floorA/B/C`. Shared R0|R1|R2 corridor walls stay omitted; the engine still merges abutting corridor slabs and skips join-seal ghost walls.
 
 v1 / v2 仍可导入；手感像素值已是 640×360，不要再乘 2。旧能力 id `gravity` 会映射成 `gravityFall`。
 
@@ -189,7 +194,8 @@ src/main.js
 src/scenes/GameScene.js
 src/rooms.js
 src/gravity.js         # gravity vector (not camera)
-src/worldSolids.js     # static room geometry + R2↔R4 gate + open R0–R2 corridor
+src/worldSolids.js     # data-driven solids (v4) + v3 hardcode fallback + open R0–R2 corridor
+src/design/default-v4.json  # baked schemaVersion 4 dump
 src/mapContents.js     # M-map pickup / gate / role descriptors
 src/gravityFlash.js    # screen-space down-arrow flash on gravity change
 src/player.js
