@@ -22,9 +22,6 @@ export class RunHud {
     this.scene = scene;
     this.root = scene.add.container(0, 0).setScrollFactor(0).setDepth(200);
 
-    const pad = scene.add.rectangle(px(4), px(4), px(118), px(38), 0x0a0a12, 0.55).setOrigin(0, 0);
-    this.root.add(pad);
-
     this.hpText = addHudText(scene, px(8), px(6), '', {
       fontSize: UI_FONT_MD,
       color: '#ff8a80',
