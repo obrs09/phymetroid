@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { ROOMS, GAME_W, GAME_H, getWorldBounds, findRoomAt } from '../rooms.js';
+import { ROOMS, GAME_W, GAME_H, getWorldBounds, findRoomAt, UI_FONT_FAMILY, UI_FONT_LG, UI_FONT_MD, UI_FONT_SM, px } from '../rooms.js';
 import { applyPlayerFeelLimits, createPlayer } from '../player.js';
 import { getFeel, subscribeDesign } from '../designConfig.js';
 import { FeelDebugPanel } from '../feelDebugPanel.js';
@@ -32,8 +32,8 @@ export class GameScene extends Phaser.Scene {
     this.solids = this.physics.add.staticGroup();
     this.buildSolids();
 
-    this.player = createPlayer(this, 100, 72);
-    this.pickup = this.createPickup(128, 68);
+    this.player = createPlayer(this, px(100), px(72));
+    this.pickup = this.createPickup(px(128), px(68));
 
     this.physics.add.collider(this.player, this.solids);
     this.physics.add.overlap(this.player, this.pickup, this.onPickup, null, this);
@@ -51,9 +51,9 @@ export class GameScene extends Phaser.Scene {
     });
 
     this.statusText = this.add
-      .text(GAME_W / 2, 28, '', {
-        fontFamily: 'monospace',
-        fontSize: '10px',
+      .text(GAME_W / 2, px(28), '', {
+        fontFamily: UI_FONT_FAMILY,
+        fontSize: UI_FONT_LG,
         color: '#ffe082',
         resolution: 1,
       })
@@ -63,9 +63,9 @@ export class GameScene extends Phaser.Scene {
       .setVisible(false);
 
     this.hintText = this.add
-      .text(GAME_W / 2, GAME_H - 12, 'NUDGE TO YELLOW: GRAVITY  |  M MAP  |  F1 FEEL', {
-        fontFamily: 'monospace',
-        fontSize: '8px',
+      .text(GAME_W / 2, GAME_H - px(12), 'NUDGE TO YELLOW: GRAVITY  |  M MAP  |  F1 FEEL', {
+        fontFamily: UI_FONT_FAMILY,
+        fontSize: UI_FONT_MD,
         color: '#90a4ae',
         resolution: 1,
       })
@@ -110,12 +110,12 @@ export class GameScene extends Phaser.Scene {
       const g = this.add.graphics();
       g.fillStyle(colors[i % colors.length], 1);
       g.fillRect(room.x, room.y, room.w, room.h);
-      g.lineStyle(1, 0x3d5a80, 0.6);
-      g.strokeRect(room.x + 0.5, room.y + 0.5, room.w - 1, room.h - 1);
+      g.lineStyle(2, 0x3d5a80, 0.6);
+      g.strokeRect(room.x + 1, room.y + 1, room.w - 2, room.h - 2);
       this.add
-        .text(room.x + 6, room.y + 6, room.id, {
-          fontFamily: 'monospace',
-          fontSize: '8px',
+        .text(room.x + px(6), room.y + px(6), room.id, {
+          fontFamily: UI_FONT_FAMILY,
+          fontSize: UI_FONT_MD,
           color: '#546e7a',
           resolution: 1,
         })
@@ -127,14 +127,14 @@ export class GameScene extends Phaser.Scene {
   buildMapOverlay() {
     this.mapRoot = this.add.container(0, 0).setScrollFactor(0).setDepth(500).setVisible(false);
 
-    const panel = this.add.rectangle(GAME_W / 2, GAME_H / 2, GAME_W - 24, GAME_H - 24, 0x0a0a12, 0.92);
-    panel.setStrokeStyle(1, 0x90caf9, 1);
+    const panel = this.add.rectangle(GAME_W / 2, GAME_H / 2, GAME_W - px(24), GAME_H - px(24), 0x0a0a12, 0.92);
+    panel.setStrokeStyle(2, 0x90caf9, 1);
     this.mapRoot.add(panel);
 
     const title = this.add
-      .text(GAME_W / 2, 18, 'MAP  (M)', {
-        fontFamily: 'monospace',
-        fontSize: '10px',
+      .text(GAME_W / 2, px(18), 'MAP  (M)', {
+        fontFamily: UI_FONT_FAMILY,
+        fontSize: UI_FONT_LG,
         color: '#e3f2fd',
         resolution: 1,
       })
@@ -153,25 +153,25 @@ export class GameScene extends Phaser.Scene {
     }
     const worldW = maxX - minX;
     const worldH = maxY - minY;
-    const boxW = GAME_W - 48;
-    const boxH = GAME_H - 56;
+    const boxW = GAME_W - px(48);
+    const boxH = GAME_H - px(56);
     const scale = Math.min(boxW / worldW, boxH / worldH);
     const ox = GAME_W / 2 - (worldW * scale) / 2;
-    const oy = 34;
+    const oy = px(34);
 
     this.mapRoomGfx = {};
     for (const r of ROOMS) {
       const rx = ox + (r.x - minX) * scale;
       const ry = oy + (r.y - minY) * scale;
-      const rw = Math.max(8, r.w * scale - 2);
-      const rh = Math.max(8, r.h * scale - 2);
+      const rw = Math.max(px(8), r.w * scale - 2);
+      const rh = Math.max(px(8), r.h * scale - 2);
       const rect = this.add.rectangle(rx + rw / 2, ry + rh / 2, rw, rh, 0x263238, 1);
-      rect.setStrokeStyle(1, 0x546e7a, 1);
+      rect.setStrokeStyle(2, 0x546e7a, 1);
       this.mapRoot.add(rect);
       const label = this.add
         .text(rx + rw / 2, ry + rh / 2, r.id, {
-          fontFamily: 'monospace',
-          fontSize: '8px',
+          fontFamily: UI_FONT_FAMILY,
+          fontSize: UI_FONT_MD,
           color: '#90a4ae',
           resolution: 1,
         })
@@ -180,14 +180,14 @@ export class GameScene extends Phaser.Scene {
       this.mapRoomGfx[r.id] = { rect, label };
     }
 
-    this.mapPlayerDot = this.add.circle(0, 0, 2.5, 0x4fc3f7, 1);
+    this.mapPlayerDot = this.add.circle(0, 0, px(2.5), 0x4fc3f7, 1);
     this.mapRoot.add(this.mapPlayerDot);
     this.mapLayout = { ox, oy, minX, minY, scale };
 
     const legend = this.add
-      .text(GAME_W / 2, GAME_H - 18, 'dark=unseen  blue=visited  bright=here  dot=you', {
-        fontFamily: 'monospace',
-        fontSize: '7px',
+      .text(GAME_W / 2, GAME_H - px(18), 'dark=unseen  blue=visited  bright=here  dot=you', {
+        fontFamily: UI_FONT_FAMILY,
+        fontSize: UI_FONT_SM,
         color: '#78909c',
         resolution: 1,
       })
@@ -246,7 +246,7 @@ export class GameScene extends Phaser.Scene {
       if (visited) fill = 0x1a237e;
       if (current) fill = 0x1565c0;
       gfx.rect.setFillStyle(fill, 1);
-      gfx.rect.setStrokeStyle(1, current ? 0xffe082 : visited ? 0x90caf9 : 0x424242, 1);
+      gfx.rect.setStrokeStyle(2, current ? 0xffe082 : visited ? 0x90caf9 : 0x424242, 1);
       gfx.label.setColor(visited || current ? '#e3f2fd' : '#616161');
     }
     this.mapPlayerDot.setPosition(
@@ -266,7 +266,7 @@ export class GameScene extends Phaser.Scene {
         const g = this.make.graphics({ x: 0, y: 0, add: false });
         g.fillStyle(color, 1);
         g.fillRect(0, 0, w, h);
-        g.lineStyle(1, 0x8d6e63, 1);
+        g.lineStyle(2, 0x8d6e63, 1);
         g.strokeRect(0, 0, w, h);
         g.generateTexture(key, w, h);
         g.destroy();
@@ -277,52 +277,53 @@ export class GameScene extends Phaser.Scene {
       return s;
     };
 
-    const floorH = 16;
-    const wallW = 8;
-    const platH = 8;
+    const floorH = px(16);
+    const wallW = px(8);
+    const platH = px(8);
 
     const r0 = ROOMS[0];
     addRect(r0.x, r0.y + r0.h - floorH, r0.w, floorH, 0x4e342e);
     addRect(r0.x, r0.y, wallW, r0.h, 0x3e2723);
     addRect(r0.x, r0.y, r0.w, wallW, 0x3e2723);
-    addRect(r0.x + 100, r0.y + 100, 48, platH, 0x6d4c41);
-    addRect(r0.x + 200, r0.y + r0.h - floorH - 24, 24, 24, 0x795548);
+    addRect(r0.x + px(100), r0.y + px(100), px(48), platH, 0x6d4c41);
+    addRect(r0.x + px(200), r0.y + r0.h - floorH - px(24), px(24), px(24), 0x795548);
 
     const r1 = ROOMS[1];
-    addRect(r1.x, r1.y + r1.h - floorH, 80, floorH, 0x4e342e);
-    addRect(r1.x + 120, r1.y + r1.h - floorH, 80, floorH, 0x4e342e);
-    addRect(r1.x + 240, r1.y + r1.h - floorH, 80, floorH, 0x4e342e);
+    addRect(r1.x, r1.y + r1.h - floorH, px(80), floorH, 0x4e342e);
+    addRect(r1.x + px(120), r1.y + r1.h - floorH, px(80), floorH, 0x4e342e);
+    addRect(r1.x + px(240), r1.y + r1.h - floorH, px(80), floorH, 0x4e342e);
     addRect(r1.x, r1.y, r1.w, wallW, 0x3e2723);
-    addRect(r1.x + 40, r1.y + 90, 40, platH, 0x6d4c41);
-    addRect(r1.x + 180, r1.y + 70, 56, platH, 0x6d4c41);
+    addRect(r1.x + px(40), r1.y + px(90), px(40), platH, 0x6d4c41);
+    addRect(r1.x + px(180), r1.y + px(70), px(56), platH, 0x6d4c41);
 
     const r2 = ROOMS[2];
     addRect(r2.x, r2.y + r2.h - floorH, r2.w, floorH, 0x4e342e);
     addRect(r2.x + r2.w - wallW, r2.y, wallW, r2.h, 0x3e2723);
     addRect(r2.x, r2.y, r2.w, wallW, 0x3e2723);
-    addRect(r2.x + 60, r2.y + 110, 40, platH, 0x6d4c41);
-    addRect(r2.x + 160, r2.y + 80, 40, platH, 0x6d4c41);
-    addRect(r2.x + 240, r2.y + r2.h - floorH - 32, 32, 32, 0x795548);
+    addRect(r2.x + px(60), r2.y + px(110), px(40), platH, 0x6d4c41);
+    addRect(r2.x + px(160), r2.y + px(80), px(40), platH, 0x6d4c41);
+    addRect(r2.x + px(240), r2.y + r2.h - floorH - px(32), px(32), px(32), 0x795548);
 
     const r3 = ROOMS[3];
     addRect(r3.x, r3.y + r3.h - floorH, r3.w, floorH, 0x4e342e);
     addRect(r3.x, r3.y, wallW, r3.h, 0x3e2723);
     addRect(r3.x + r3.w - wallW, r3.y, wallW, r3.h, 0x3e2723);
-    addRect(r3.x + 80, r3.y + 80, 48, platH, 0x6d4c41);
-    addRect(r3.x + 180, r3.y + 100, 48, platH, 0x6d4c41);
-    addRect(r3.x, r3.y, 100, wallW, 0x3e2723);
-    addRect(r3.x + 220, r3.y, 100, wallW, 0x3e2723);
+    addRect(r3.x + px(80), r3.y + px(80), px(48), platH, 0x6d4c41);
+    addRect(r3.x + px(180), r3.y + px(100), px(48), platH, 0x6d4c41);
+    addRect(r3.x, r3.y, px(100), wallW, 0x3e2723);
+    addRect(r3.x + px(220), r3.y, px(100), wallW, 0x3e2723);
   }
 
   createPickup(x, y) {
     const key = 'pickup';
     if (!this.textures.exists(key)) {
       const g = this.make.graphics({ x: 0, y: 0, add: false });
+      const r = px(8);
       g.fillStyle(0xffeb3b, 1);
-      g.fillCircle(8, 8, 8);
-      g.lineStyle(1, 0xfff59d, 1);
-      g.strokeCircle(8, 8, 8);
-      g.generateTexture(key, 16, 16);
+      g.fillCircle(r, r, r);
+      g.lineStyle(2, 0xfff59d, 1);
+      g.strokeCircle(r, r, r);
+      g.generateTexture(key, r * 2, r * 2);
       g.destroy();
     }
     const p = this.physics.add.sprite(x, y, key);
@@ -331,7 +332,7 @@ export class GameScene extends Phaser.Scene {
     p.setDepth(8);
     this.tweens.add({
       targets: p,
-      y: y - 4,
+      y: y - px(4),
       duration: 700,
       yoyo: true,
       repeat: -1,
@@ -444,7 +445,7 @@ export class GameScene extends Phaser.Scene {
       else if (right) vx = feel.floatNudge;
       this.player.setVelocityX(vx);
       const baseY = this._floatBaseY ?? (this._floatBaseY = this.player.y);
-      const bob = Math.sin(this.time.now / 400) * 3;
+      const bob = Math.sin(this.time.now / 400) * px(3);
       this.player.setVelocityY((baseY + bob - this.player.y) * 4);
     }
 

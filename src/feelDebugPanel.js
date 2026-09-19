@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { GAME_W, GAME_H } from './rooms.js';
+import { GAME_W, GAME_H, UI_FONT_FAMILY, UI_FONT_LG, UI_FONT_MD, UI_FONT_SM, px } from './rooms.js';
 import {
   FEEL_FIELDS,
   downloadDesignJson,
@@ -9,8 +9,8 @@ import {
   resetDesignToDefaults,
 } from './designConfig.js';
 
-const ROW_H = 10;
-const FIELD_TOP = 40;
+const ROW_H = px(10);
+const FIELD_TOP = px(40);
 
 /**
  * Keyboard-first F1 feel debugger. Physics should be paused by the scene
@@ -29,37 +29,37 @@ export class FeelDebugPanel {
 
     this.root = scene.add.container(0, 0).setScrollFactor(0).setDepth(600).setVisible(false);
 
-    const panel = scene.add.rectangle(GAME_W / 2, GAME_H / 2, GAME_W - 8, GAME_H - 8, 0x0a0a12, 0.94);
-    panel.setStrokeStyle(1, 0xb2ff59, 1);
+    const panel = scene.add.rectangle(GAME_W / 2, GAME_H / 2, GAME_W - px(8), GAME_H - px(8), 0x0a0a12, 0.94);
+    panel.setStrokeStyle(2, 0xb2ff59, 1);
     this.root.add(panel);
 
     this.titleText = scene.add
-      .text(8, 6, 'FEEL DEBUG  (F1 / `)', {
-        fontFamily: 'monospace',
-        fontSize: '8px',
+      .text(px(8), px(6), 'FEEL DEBUG  (F1 / `)', {
+        fontFamily: UI_FONT_FAMILY,
+        fontSize: UI_FONT_LG,
         color: '#b2ff59',
         resolution: 1,
       });
     this.root.add(this.titleText);
 
     this.statusText = scene.add
-      .text(8, 16, '', {
-        fontFamily: 'monospace',
-        fontSize: '7px',
+      .text(px(8), px(16), '', {
+        fontFamily: UI_FONT_FAMILY,
+        fontSize: UI_FONT_SM,
         color: '#c5e1a5',
         resolution: 1,
       });
     this.root.add(this.statusText);
 
-    this.highlight = scene.add.rectangle(GAME_W / 2, 0, GAME_W - 16, ROW_H, 0x33691e, 0.85);
+    this.highlight = scene.add.rectangle(GAME_W / 2, 0, GAME_W - px(16), ROW_H, 0x33691e, 0.85);
     this.root.add(this.highlight);
 
     this.rows = FEEL_FIELDS.map((field, i) => {
       const y = FIELD_TOP + i * ROW_H;
       const label = scene.add
-        .text(10, y, '', {
-          fontFamily: 'monospace',
-          fontSize: '8px',
+        .text(px(10), y, '', {
+          fontFamily: UI_FONT_FAMILY,
+          fontSize: UI_FONT_MD,
           color: '#dcedc8',
           resolution: 1,
         })
@@ -71,9 +71,9 @@ export class FeelDebugPanel {
       this.root.add(label);
 
       const minus = scene.add
-        .text(268, y, '-', {
-          fontFamily: 'monospace',
-          fontSize: '8px',
+        .text(px(268), y, '-', {
+          fontFamily: UI_FONT_FAMILY,
+          fontSize: UI_FONT_MD,
           color: '#ffcc80',
           resolution: 1,
         })
@@ -82,9 +82,9 @@ export class FeelDebugPanel {
       this.root.add(minus);
 
       const plus = scene.add
-        .text(284, y, '+', {
-          fontFamily: 'monospace',
-          fontSize: '8px',
+        .text(px(284), y, '+', {
+          fontFamily: UI_FONT_FAMILY,
+          fontSize: UI_FONT_MD,
           color: '#ffcc80',
           resolution: 1,
         })
@@ -96,18 +96,18 @@ export class FeelDebugPanel {
     });
 
     this.helpText = scene.add
-      .text(8, 132, '', {
-        fontFamily: 'monospace',
-        fontSize: '7px',
+      .text(px(8), px(132), '', {
+        fontFamily: UI_FONT_FAMILY,
+        fontSize: UI_FONT_SM,
         color: '#78909c',
         resolution: 1,
       });
     this.root.add(this.helpText);
 
     this.toastText = scene.add
-      .text(GAME_W / 2, 170, '', {
-        fontFamily: 'monospace',
-        fontSize: '7px',
+      .text(GAME_W / 2, px(170), '', {
+        fontFamily: UI_FONT_FAMILY,
+        fontSize: UI_FONT_SM,
         color: '#ffe082',
         resolution: 1,
       })
@@ -207,7 +207,7 @@ export class FeelDebugPanel {
 
   refreshFields() {
     const feel = getFeel();
-    this.highlight.y = FIELD_TOP + this.selectedIndex * ROW_H + 4;
+    this.highlight.y = FIELD_TOP + this.selectedIndex * ROW_H + px(4);
     this.rows.forEach((row, i) => {
       const selected = i === this.selectedIndex;
       const marker = selected ? '>' : ' ';

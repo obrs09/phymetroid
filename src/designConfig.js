@@ -12,38 +12,44 @@
  *   jumpBufferMs       BUFFER MS      jump-press remember window
  *   floatNudge         FLOAT NUDGE    pre-gravity A/D air nudge
  *
+ * Pixel velocities (moveSpeed, jumpVelocity, gravityY, maxFallSpeed, floatNudge)
+ * are WORLD_SCALE × the original 320×180 defaults so hang time and room-cross
+ * time match after the 640×360 layout scale. Time / ratio keys are unchanged.
+ *
  * Persistence: localStorage key `phymetroid.designConfig` (optional boot load).
  * Programmatic import: window.__PHYMETROID_APPLY_DESIGN__(objOrJson)
  * or applyDesignConfig(obj). The future 策划 bot can write this same JSON.
  */
+
+import { GAME_H, GAME_W, WORLD_SCALE } from './rooms.js';
 
 export const SCHEMA_VERSION = 1;
 export const GAME_ID = 'phymetroid';
 export const DESIGN_STORAGE_KEY = 'phymetroid.designConfig';
 
 export const FEEL_DEFAULTS = Object.freeze({
-  moveSpeed: 110,
+  moveSpeed: 110 * WORLD_SCALE,
   airControl: 0.85,
-  jumpVelocity: -275,
+  jumpVelocity: -275 * WORLD_SCALE,
   jumpCutMultiplier: 0.45,
-  gravityY: 980,
-  maxFallSpeed: 320,
+  gravityY: 980 * WORLD_SCALE,
+  maxFallSpeed: 320 * WORLD_SCALE,
   coyoteMs: 90,
   jumpBufferMs: 100,
-  floatNudge: 28,
+  floatNudge: 28 * WORLD_SCALE,
 });
 
 /** Field metadata for the F1 debugger (steps, clamps, labels). */
 export const FEEL_FIELDS = Object.freeze([
-  { key: 'moveSpeed', label: 'MOVE SPEED', step: 5, shiftStep: 20, min: 10, max: 400, decimals: 0 },
+  { key: 'moveSpeed', label: 'MOVE SPEED', step: 5 * WORLD_SCALE, shiftStep: 20 * WORLD_SCALE, min: 10 * WORLD_SCALE, max: 400 * WORLD_SCALE, decimals: 0 },
   { key: 'airControl', label: 'AIR CONTROL', step: 0.05, shiftStep: 0.15, min: 0, max: 1.5, decimals: 2 },
-  { key: 'jumpVelocity', label: 'JUMP VEL', step: 5, shiftStep: 25, min: -600, max: -40, decimals: 0 },
+  { key: 'jumpVelocity', label: 'JUMP VEL', step: 5 * WORLD_SCALE, shiftStep: 25 * WORLD_SCALE, min: -600 * WORLD_SCALE, max: -40 * WORLD_SCALE, decimals: 0 },
   { key: 'jumpCutMultiplier', label: 'JUMP CUT', step: 0.05, shiftStep: 0.15, min: 0, max: 1, decimals: 2 },
-  { key: 'gravityY', label: 'GRAVITY Y', step: 20, shiftStep: 100, min: 80, max: 2500, decimals: 0 },
-  { key: 'maxFallSpeed', label: 'MAX FALL', step: 10, shiftStep: 40, min: 40, max: 900, decimals: 0 },
+  { key: 'gravityY', label: 'GRAVITY Y', step: 20 * WORLD_SCALE, shiftStep: 100 * WORLD_SCALE, min: 80 * WORLD_SCALE, max: 2500 * WORLD_SCALE, decimals: 0 },
+  { key: 'maxFallSpeed', label: 'MAX FALL', step: 10 * WORLD_SCALE, shiftStep: 40 * WORLD_SCALE, min: 40 * WORLD_SCALE, max: 900 * WORLD_SCALE, decimals: 0 },
   { key: 'coyoteMs', label: 'COYOTE MS', step: 10, shiftStep: 30, min: 0, max: 400, decimals: 0 },
   { key: 'jumpBufferMs', label: 'BUFFER MS', step: 10, shiftStep: 30, min: 0, max: 400, decimals: 0 },
-  { key: 'floatNudge', label: 'FLOAT NUDGE', step: 2, shiftStep: 8, min: 0, max: 160, decimals: 0 },
+  { key: 'floatNudge', label: 'FLOAT NUDGE', step: 2 * WORLD_SCALE, shiftStep: 8 * WORLD_SCALE, min: 0, max: 160 * WORLD_SCALE, decimals: 0 },
 ]);
 
 const FEEL_FIELD_BY_KEY = Object.fromEntries(FEEL_FIELDS.map((f) => [f.key, f]));
@@ -112,6 +118,8 @@ function persist() {
       DESIGN_STORAGE_KEY,
       JSON.stringify({
         schemaVersion: SCHEMA_VERSION,
+        logicalW: GAME_W,
+        logicalH: GAME_H,
         sections: { feel: getFeel() },
       })
     );
@@ -127,6 +135,13 @@ function loadFromStorage() {
     const raw = ls.getItem(DESIGN_STORAGE_KEY);
     if (!raw) return;
     const obj = JSON.parse(raw);
+    // Ignore pre-640×360 saves: pixel velocities were authored for 320×180.
+    if (obj?.logicalW && obj?.logicalH && (obj.logicalW !== GAME_W || obj.logicalH !== GAME_H)) {
+      return;
+    }
+    if (!obj?.logicalW && !obj?.logicalH) {
+      return;
+    }
     const feel = obj?.sections?.feel ?? obj?.feel;
     if (feel && typeof feel === 'object') {
       state.sections.feel = sanitizeFeel(feel);
