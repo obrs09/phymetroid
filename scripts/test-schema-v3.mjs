@@ -97,6 +97,8 @@ section('schemaVersion 4 export shape', () => {
   assert.equal(s.progress.abilityPhases.gravityFall, 'exploration');
   assert.equal(s.progress.abilityPhases.surfaceWalk, 'frictionLesson');
   assert.ok(s.progress.pathIntent.en);
+  assert.ok(Array.isArray(s.progress.pathIntent.zh));
+  assert.ok(s.abilities.gravityFall.why);
 });
 
 section('rooms / pickups / gates coords', () => {
@@ -120,7 +122,8 @@ section('rooms / pickups / gates coords', () => {
   assert.deepEqual(gate.world, { x: 1520, y: 0, w: 80, h: 16 });
   assert.equal(gate.requireAbility, 'gravityFall');
   const pit = getGates().find((g) => g.id === 'gate_R1_to_R3');
-  assert.deepEqual(pit.world, { x: 800, y: 360, w: 80, h: 16 });
+  assert.equal(pit.world, undefined, 'gate_R1_to_R3 has no invented world rect');
+  assert.equal(pit.kind, 'floorGap');
 });
 
 section('v4 rooms[].solids source counts + local/world math', () => {
@@ -179,11 +182,69 @@ section('v3 rooms without solids fall back to hardcode', () => {
   assert.equal(getRooms().find((r) => r.id === 'R0').solids.length, 5);
 });
 
+section('R1 floor pits open R3 without gate.world', () => {
+  const r1 = getRooms().find((r) => r.id === 'R1');
+  const floors = r1.solids
+    .filter((s) => s.kind === 'floor')
+    .map((s) => ({ x: r1.x + s.x, w: s.w }))
+    .sort((a, b) => a.x - b.x);
+  assert.deepEqual(
+    floors.map((f) => [f.x, f.x + f.w]),
+    [
+      [640, 800],
+      [880, 1040],
+      [1120, 1280],
+    ]
+  );
+  const rects = listWorldSolidRects(getRooms(), getGates());
+  const coversFloor = (x) =>
+    rects.some((r) => r.tag === 'floor' && x >= r.x && x < r.x + r.w && r.y === 328);
+  assert.equal(coversFloor(820), false, 'pit between floorA and floorB');
+  assert.equal(coversFloor(1080), false, 'pit between floorB and floorC');
+  assert.equal(coversFloor(720), true);
+});
+
+section('data-driven key slabs match v3 hardcode', () => {
+  const data = listWorldSolidRects(getRooms(), getGates()).map((r) => ({
+    x: r.x,
+    y: r.y,
+    w: r.w,
+    h: r.h,
+    tag: r.tag,
+  }));
+  applyDesignConfig({
+    schemaVersion: 3,
+    logicalW: 640,
+    logicalH: 360,
+    sections: { rooms: ROOMS.map((r) => ({ ...r })) },
+  });
+  const hard = listWorldSolidRects(getRooms(), getGates()).map((r) => ({
+    x: r.x,
+    y: r.y,
+    w: r.w,
+    h: r.h,
+    tag: r.tag,
+  }));
+  const key = (list, pred) => list.find(pred);
+  const doorD = key(data, (r) => r.x === 1496 && r.w === 24 && r.h === 312);
+  const doorH = key(hard, (r) => r.x === 1496 && r.w === 24 && r.h === 312);
+  assert.ok(doorD && doorH);
+  assert.deepEqual(doorD, doorH);
+  const covers = (list, x, y) => list.some((r) => x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h);
+  assert.equal(covers(data, 1560, 8), covers(hard, 1560, 8));
+  assert.equal(covers(data, 1560, -16), covers(hard, 1560, -16));
+  assert.equal(covers(data, 200, 336), covers(hard, 200, 336));
+  resetDesignToDefaults();
+});
+
 section('design graph validation logs, does not throw', () => {
   assert.deepEqual(validateDesignGraph(), []);
   const errors = [];
-  const orig = console.error;
+  const warns = [];
+  const origErr = console.error;
+  const origWarn = console.warn;
   console.error = (msg) => errors.push(String(msg));
+  console.warn = (msg) => warns.push(String(msg));
   try {
     applyDesignConfig({
       schemaVersion: 4,
@@ -205,13 +266,39 @@ section('design graph validation logs, does not throw', () => {
       },
     });
   } finally {
-    console.error = orig;
+    console.error = origErr;
+    console.warn = origWarn;
   }
   const graph = validateDesignGraph();
   assert.ok(graph.some((e) => e.includes('ghost') && e.includes('NOPE')));
   assert.ok(graph.some((e) => e.includes('broken') && e.includes('fromRoomId')));
-  assert.ok(graph.some((e) => e.includes('gapGateId') && e.includes('missing_gate')));
+  assert.ok(!graph.some((e) => e.includes('gapGateId')), 'missing gapGateId is a warn, not a hard error');
   assert.ok(errors.some((e) => e.includes('design validation')));
+  assert.ok(warns.some((e) => e.includes('gapGateId') && e.includes('missing_gate')));
+  resetDesignToDefaults();
+});
+
+section('unknown solid.kind is custom and does not throw', () => {
+  applyDesignConfig({
+    schemaVersion: 4,
+    logicalW: 640,
+    logicalH: 360,
+    sections: {
+      rooms: [
+        {
+          id: 'R0',
+          x: 0,
+          y: 0,
+          w: 640,
+          h: 360,
+          solids: [{ id: 'weird', kind: 'mysteryBox', space: 'local', x: 10, y: 10, w: 8, h: 8 }],
+        },
+      ],
+    },
+  });
+  const rects = listWorldSolidRects(getRooms(), getGates());
+  const custom = rects.find((r) => r.x === 10 && r.y === 10 && r.w === 8 && r.h === 8);
+  assert.equal(custom.tag, 'custom');
   resetDesignToDefaults();
 });
 

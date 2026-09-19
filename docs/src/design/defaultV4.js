@@ -1,5 +1,5 @@
 /**
- * Baked schemaVersion 4 default from 数值策划.
+ * Baked schemaVersion 4 default from 数值策划 (authoritative dump).
  * Pages-safe JS module (no JSON import attributes).
  */
 export default {
@@ -22,8 +22,7 @@ export default {
       "pickups/gates remain the only pickup/gate source of truth; solids may reference gates via gapGateId.",
       "world = room.x/y + local; space:world allowed for cross-room pieces (e.g. doorframe).",
       "Unknown solid.kind → treat as custom/block. Corridor shared vertical walls omitted; engine skips join seals.",
-      "Pixel feel already WORLD_SCALE×2; do not re-scale.",
-      "Transit truncated gate_R1_to_R3; reconstructed as floorGap world(800,360,80,16) under R1 pit — confirm against checklist."
+      "Pixel feel already WORLD_SCALE×2; do not re-scale."
     ]
   },
   "sections": {
@@ -79,7 +78,8 @@ export default {
           "gravityDirections": "cardinal",
           "snapDownOnPickup": true,
           "bodyMode": "falling"
-        }
+        },
+        "why": "拾取后立刻变成落体：把「下」拨到最近轴。教学「重力是方向，不是地板」。不能走/跳/贴顶逛；空中锁定重力方向。"
       },
       "surfaceWalk": {
         "id": "surfaceWalk",
@@ -95,7 +95,8 @@ export default {
           "canJump": false,
           "canWallJump": false,
           "gravityDirections": "cardinal"
-        }
+        },
+        "why": "第一扇真门后的能力。有摩擦，可沿当前「下」行走，可扒墙滑落；仍不能跳（跳属 reactionJump）。"
       },
       "reactionJump": {
         "id": "reactionJump",
@@ -108,7 +109,8 @@ export default {
           "canJump": true,
           "canWallJump": true,
           "usesFeelJump": true
-        }
+        },
+        "why": "与 surfaceWalk 分开（可紧跟或稍晚）。解锁跳，之后才能扒墙跳。feel 的 jump* / coyote / buffer 从这时起生效。"
       },
       "gravityField": {
         "id": "gravityField",
@@ -122,7 +124,8 @@ export default {
           "toggleAnytime": true,
           "adjustableMagnitude": true,
           "airLocksDirection": false
-        }
+        },
+        "why": "中后期。任意角、可随时开、可调 g。镜头仍不转。"
       }
     },
     "player": {
@@ -152,6 +155,16 @@ export default {
         "surfaceWalk": "frictionLesson",
         "reactionJump": "jumpLesson",
         "gravityField": "exploration"
+      },
+      "pathIntent": {
+        "zh": [
+          "R0：漂浮 → 碰 gravityOrb → 获得 gravityFall（I）。世界重力矢量开启，「下」吸附最近轴；仍不能走/跳。",
+          "I 阶段：用四向重力当唯一位移手段（着地时可改方向；空中锁定）。穿过 R1 缺口进入 R2。",
+          "R2→R4：R2 顶开通道（第一扇真门，门禁 requireAbility: gravityFall）。在 R2 着地后把「下」拨到 up，落体「向上」坠入 R4。",
+          "R4：摩擦房。左上角 surfaceWalk 拾取 → 获得 II。此后可沿当前「下」行走/扒墙滑。",
+          "其后（本 JSON 未摆放拾取）：reactionJump → 再后 gravityField（III）。",
+          "旧 R3（R1 正下方）保留探索支线，不改 id，不承担摩擦教学。"
+        ]
       }
     },
     "rooms": [
@@ -549,7 +562,8 @@ export default {
           },
           "advancePhase": "exploration",
           "statusBanner": "GRAVITY ON"
-        }
+        },
+        "notes": "坐标对齐现实现：px(128)=256, px(68)=136（相对世界，R0 原点）。legacy 能力名 gravity → gravityFall。"
       },
       {
         "id": "surfaceWalkOrb",
@@ -568,7 +582,8 @@ export default {
           },
           "advancePhase": "frictionLesson",
           "statusBanner": "SURFACE WALK"
-        }
+        },
+        "notes": "R4 左上角：房间原点 (1280,-360) + 本地 (40,40)。"
       }
     ],
     "gates": [
@@ -583,7 +598,8 @@ export default {
           "y": 0,
           "w": 80,
           "h": 16
-        }
+        },
+        "intent": "第一扇真正的门/通道。仅 I 可到：在 R2 着地后将「下」拨到 up，落体穿过顶通道坠入 R4。无 surfaceWalk 时不可走过去。"
       },
       {
         "id": "gate_R1_to_R3",
@@ -591,13 +607,7 @@ export default {
         "toRoomId": "R3",
         "kind": "floorGap",
         "requireAbility": "gravityFall",
-        "world": {
-          "x": 800,
-          "y": 360,
-          "w": 80,
-          "h": 16
-        },
-        "note": "Reconstructed after chat truncation; R1 pit between floorA and floorB (local 160-240). Confirm if checklist differs."
+        "intent": "旧坑道入口；与摩擦教学无关。"
       }
     ]
   }

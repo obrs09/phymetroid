@@ -184,12 +184,6 @@ export function splitRectAroundGate(rect, gap) {
   return out;
 }
 
-function gateWorldById(gates, id) {
-  if (!id) return null;
-  const gate = gates.find((g) => g.id === id);
-  return gate?.world ?? null;
-}
-
 function appendDataDrivenRoom(room, gates, helpers) {
   const { addRect, addFloor, addCeil, addWall } = helpers;
   const corridor = CORRIDOR_ROOM_IDS.has(room.id);
@@ -201,8 +195,17 @@ function appendDataDrivenRoom(room, gates, helpers) {
       continue;
     }
     const color = colorForSolid(room.id, kind, raw);
-    const gap = gateWorldById(gates, raw.gapGateId);
-    const pieces = gap ? splitRectAroundGate(world, gap) : [world];
+    let pieces = [world];
+    if (raw.gapGateId) {
+      const gate = gates.find((g) => g.id === raw.gapGateId);
+      if (!gate) {
+        console.warn(
+          `[phymetroid] gapGateId "${raw.gapGateId}" on ${raw.id || room.id} not in gates; skip hole`
+        );
+      } else if (gate.world) {
+        pieces = splitRectAroundGate(world, gate.world);
+      }
+    }
     for (const piece of pieces) {
       if (kind === 'wall') {
         addWall(piece.x, piece.y, piece.w, piece.h, color);

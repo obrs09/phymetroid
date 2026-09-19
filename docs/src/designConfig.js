@@ -215,7 +215,14 @@ export const PROGRESS_DESIGN_DEFAULTS = Object.freeze({
     [ABILITY_ID.GRAVITY_FIELD]: 'exploration',
   }),
   pathIntent: Object.freeze({
-    zh: 'R0 漂浮 → 黄球 → gravityFall → 用四向重力到 R2 → 把 down 翻成 up → 落入 R4 → surfaceWalk → 走/滑。',
+    zh: Object.freeze([
+      'R0：漂浮 → 碰 gravityOrb → 获得 gravityFall（I）。世界重力矢量开启，「下」吸附最近轴；仍不能走/跳。',
+      'I 阶段：用四向重力当唯一位移手段（着地时可改方向；空中锁定）。穿过 R1 缺口进入 R2。',
+      'R2→R4：R2 顶开通道（第一扇真门，门禁 requireAbility: gravityFall）。在 R2 着地后把「下」拨到 up，落体「向上」坠入 R4。',
+      'R4：摩擦房。左上角 surfaceWalk 拾取 → 获得 II。此后可沿当前「下」行走/扒墙滑。',
+      '其后（本 JSON 未摆放拾取）：reactionJump → 再后 gravityField（III）。',
+      '旧 R3（R1 正下方）保留探索支线，不改 id，不承担摩擦教学。',
+    ]),
     en: 'R0 float → orb → gravityFall → reach R2 via cardinal gravity → flip down to up → fall into R4 → surfaceWalk → walk/slide.',
   }),
 });
@@ -261,6 +268,7 @@ export const GATE_DESIGN_DEFAULTS = Object.freeze([
     kind: 'ceilingPassage',
     requireAbility: ABILITY_ID.GRAVITY_FALL,
     world: Object.freeze({ x: 1520, y: 0, w: 80, h: 16 }),
+    intent: '第一扇真正的门/通道。仅 I 可到：在 R2 着地后将「下」拨到 up，落体穿过顶通道坠入 R4。无 surfaceWalk 时不可走过去。',
   }),
   Object.freeze({
     id: 'gate_R1_to_R3',
@@ -268,7 +276,7 @@ export const GATE_DESIGN_DEFAULTS = Object.freeze([
     toRoomId: 'R3',
     kind: 'floorGap',
     requireAbility: ABILITY_ID.GRAVITY_FALL,
-    world: Object.freeze({ x: 800, y: 360, w: 80, h: 16 }),
+    intent: '旧坑道入口；与摩擦教学无关。',
   }),
 ]);
 
@@ -287,6 +295,7 @@ export const COMPAT_DEFAULTS = Object.freeze({
     'Unknown solid.kind → treat as custom/block. Corridor shared vertical walls omitted; engine skips join seals.',
     'Pixel feel already WORLD_SCALE×2; do not re-scale. Feel debugger keys unchanged.',
     "Ability id rename: runtime ABILITY.GRAVITY / 'gravity' → 'gravityFall'. Map on import for old saves.",
+    'gate_R1_to_R3 has no world rect; R1→R3 openings come from R1 floorA/B/C pits only.',
   ]),
 });
 
@@ -311,13 +320,32 @@ function clonePlayer(src = PLAYER_DESIGN_DEFAULTS) {
   return sanitizePlayerPatch(base, src);
 }
 
+function clonePathIntentMap(src) {
+  const out = {};
+  if (!src || typeof src !== 'object') return out;
+  for (const [key, value] of Object.entries(src)) {
+    if (typeof value === 'string') out[key] = value;
+    else if (Array.isArray(value)) out[key] = [...value];
+  }
+  return out;
+}
+
+function sanitizePathIntentValue(value) {
+  if (typeof value === 'string' && value.trim()) return value.trim();
+  if (Array.isArray(value)) {
+    const lines = value.filter((v) => typeof v === 'string' && v.trim()).map((v) => v.trim());
+    return lines.length ? lines : null;
+  }
+  return null;
+}
+
 function cloneProgress(src = PROGRESS_DESIGN_DEFAULTS) {
   const base = {
     defaultPhase: PROGRESS_DESIGN_DEFAULTS.defaultPhase,
     phaseAfterGravity: PROGRESS_DESIGN_DEFAULTS.phaseAfterGravity,
     phaseLabels: { ...PROGRESS_DESIGN_DEFAULTS.phaseLabels },
     abilityPhases: { ...PROGRESS_DESIGN_DEFAULTS.abilityPhases },
-    pathIntent: { ...PROGRESS_DESIGN_DEFAULTS.pathIntent },
+    pathIntent: clonePathIntentMap(PROGRESS_DESIGN_DEFAULTS.pathIntent),
   };
   return sanitizeProgressPatch(base, src);
 }
@@ -346,7 +374,7 @@ function abilityPatchFrom(src, id) {
   return undefined;
 }
 
-function cloneAbilities(src = ABILITY_DESIGN_DEFAULTS) {
+function cloneAbilities(src = DEFAULT_V4.sections.abilities) {
   const next = {};
   for (const id of ABILITY_UNLOCK_ORDER) {
     next[id] = cloneAbilityDef(id, abilityPatchFrom(src, id));
@@ -365,11 +393,11 @@ function cloneRooms(src = ROOM_DESIGN_DEFAULTS) {
   return sanitizeRooms(src);
 }
 
-function clonePickups(src = PICKUP_DESIGN_DEFAULTS) {
+function clonePickups(src = DEFAULT_V4.sections.pickups) {
   return sanitizePickups(src);
 }
 
-function cloneGates(src = GATE_DESIGN_DEFAULTS) {
+function cloneGates(src = DEFAULT_V4.sections.gates) {
   return sanitizeGates(src);
 }
 
@@ -484,7 +512,7 @@ function sanitizeProgressPatch(base, patch) {
     phaseAfterGravity: base.phaseAfterGravity,
     phaseLabels: { ...base.phaseLabels },
     abilityPhases: { ...base.abilityPhases },
-    pathIntent: { ...base.pathIntent },
+    pathIntent: clonePathIntentMap(base.pathIntent),
   };
   if (!patch || typeof patch !== 'object') return next;
   if (typeof patch.defaultPhase === 'string' && patch.defaultPhase.trim()) {
@@ -510,9 +538,9 @@ function sanitizeProgressPatch(base, patch) {
   }
   if (patch.pathIntent && typeof patch.pathIntent === 'object') {
     for (const [key, value] of Object.entries(patch.pathIntent)) {
-      if (typeof key === 'string' && key && typeof value === 'string' && value.trim()) {
-        next.pathIntent[key] = value.trim();
-      }
+      if (typeof key !== 'string' || !key) continue;
+      const nextVal = sanitizePathIntentValue(value);
+      if (nextVal !== null) next.pathIntent[key] = nextVal;
     }
   }
   return next;
@@ -594,10 +622,12 @@ function sanitizeAbilityDef(base, patch) {
   };
   if (base.legacyIds) next.legacyIds = [...base.legacyIds];
   if (base.requires) next.requires = [...base.requires];
+  if (typeof base.why === 'string' && base.why.trim()) next.why = base.why.trim();
   if (!patch || typeof patch !== 'object') return next;
   if (typeof patch.id === 'string') next.id = canonicalAbilityId(patch.id) || next.id;
   if (typeof patch.tier === 'string' && patch.tier.trim()) next.tier = patch.tier.trim();
   if (typeof patch.label === 'string' && patch.label.trim()) next.label = patch.label.trim();
+  if (typeof patch.why === 'string' && patch.why.trim()) next.why = patch.why.trim();
   if (Array.isArray(patch.legacyIds)) {
     next.legacyIds = [
       ...new Set(patch.legacyIds.filter((id) => typeof id === 'string' && id.trim()).map((id) => id.trim())),
@@ -632,7 +662,7 @@ function sanitizeSolid(raw) {
   if (typeof raw.gapGateId === 'string' && raw.gapGateId.trim()) {
     solid.gapGateId = raw.gapGateId.trim();
   }
-  if (raw.fixed !== undefined) solid.fixed = raw.fixed !== false;
+  solid.fixed = raw.fixed !== false;
   return solid;
 }
 
@@ -703,6 +733,7 @@ function sanitizePickups(list) {
       onCollect: sanitizeOnCollect(raw.onCollect),
     };
     if (typeof raw.color === 'string' && raw.color.trim()) pickup.color = raw.color.trim();
+    if (typeof raw.notes === 'string' && raw.notes.trim()) pickup.notes = raw.notes.trim();
     pickups.push(pickup);
   }
   return pickups;
@@ -731,6 +762,7 @@ function sanitizeGates(list) {
       const h = Number(raw.world.h);
       if ([x, y, w, h].every(Number.isFinite)) gate.world = { x, y, w, h };
     }
+    if (typeof raw.intent === 'string' && raw.intent.trim()) gate.intent = raw.intent.trim();
     gates.push(gate);
   }
   return gates;
@@ -761,14 +793,22 @@ export function validateDesignGraph(sections = state.sections) {
       errors.push(`gate "${g.id}" missing toRoomId "${g.toRoomId || ''}"`);
     }
   }
+  return errors;
+}
+
+function warnMissingGapGateIds(sections = state.sections) {
+  const gates = Array.isArray(sections?.gates) ? sections.gates : [];
+  const rooms = Array.isArray(sections?.rooms) ? sections.rooms : [];
+  const gateIds = new Set(gates.map((g) => g.id).filter(Boolean));
   for (const room of rooms) {
     for (const s of room.solids || []) {
       if (s.gapGateId && !gateIds.has(s.gapGateId)) {
-        errors.push(`solid "${s.id || '?'}" in ${room.id} references missing gapGateId "${s.gapGateId}"`);
+        console.warn(
+          `[phymetroid] design validation: solid "${s.id || '?'}" in ${room.id} references missing gapGateId "${s.gapGateId}" (skip hole)`
+        );
       }
     }
   }
-  return errors;
 }
 
 function logDesignValidation(errors) {
@@ -841,6 +881,7 @@ function applyImportedObject(obj) {
     state.sections.gates = sanitizeGates(gates);
   }
   logDesignValidation(validateDesignGraph(state.sections));
+  warnMissingGapGateIds(state.sections);
 }
 
 function loadFromStorage() {
@@ -890,7 +931,7 @@ export function getProgressDesign() {
     phaseAfterGravity: p.phaseAfterGravity,
     phaseLabels: { ...p.phaseLabels },
     abilityPhases: { ...p.abilityPhases },
-    pathIntent: { ...p.pathIntent },
+    pathIntent: clonePathIntentMap(p.pathIntent),
   };
 }
 
@@ -1020,6 +1061,7 @@ function exportAbility(id) {
   };
   if (a.legacyIds?.length) out.legacyIds = [...a.legacyIds];
   if (a.requires?.length) out.requires = [...a.requires];
+  if (a.why) out.why = a.why;
   return out;
 }
 
