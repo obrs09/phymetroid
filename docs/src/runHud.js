@@ -6,12 +6,14 @@
 import { GAME_W, UI_FONT_MD, UI_FONT_SM, px } from './rooms.js';
 import { addHudText } from './hudText.js';
 import { getProgressDesign, subscribeDesign } from './designConfig.js';
-import { ABILITY, KNOWN_ABILITIES, getItemTotal, getRunState, subscribeRun } from './runState.js';
+import { axisLabel } from './gravity.js';
+import { ABILITY, KNOWN_ABILITIES, getAbilityGrants, getItemTotal, getRunState, subscribeRun } from './runState.js';
 
 const ABILITY_TAG = Object.freeze({
-  [ABILITY.GRAVITY]: 'GRAV',
-  [ABILITY.DOUBLE_JUMP]: 'JUMP',
-  [ABILITY.DASH]: 'DASH',
+  [ABILITY.GRAVITY_FALL]: 'FALL',
+  [ABILITY.SURFACE_WALK]: 'WALK',
+  [ABILITY.REACTION_JUMP]: 'JUMP',
+  [ABILITY.GRAVITY_FIELD]: 'FIELD',
 });
 
 export class RunHud {
@@ -34,12 +36,16 @@ export class RunHud {
       fontSize: UI_FONT_SM,
       color: '#80deea',
     });
+    this.gravText = addHudText(scene, px(8), px(38), '', {
+      fontSize: UI_FONT_SM,
+      color: '#b0bec5',
+    });
     this.itemText = addHudText(scene, GAME_W - px(6), px(6), '', {
       fontSize: UI_FONT_SM,
       color: '#b0bec5',
     }).setOrigin(1, 0);
 
-    this.root.add([this.hpText, this.phaseText, this.abilityText, this.itemText]);
+    this.root.add([this.hpText, this.phaseText, this.abilityText, this.gravText, this.itemText]);
 
     this._unsubRun = subscribeRun(() => this.refresh());
     this._unsubDesign = subscribeDesign(() => this.refresh());
@@ -67,7 +73,10 @@ export class RunHud {
       return snap.abilities.includes(id) ? `[${tag}]` : tag.toLowerCase();
     }).join(' ');
     this.abilityText.setText(chips);
-    this.abilityText.setColor(snap.abilities.includes(ABILITY.GRAVITY) ? '#80deea' : '#78909c');
+    const grants = getAbilityGrants();
+    this.abilityText.setColor(grants.hasGravity ? '#80deea' : '#78909c');
+    this.gravText.setText(grants.hasGravity ? `DOWN ${axisLabel(snap.gravityDown)}` : '');
+    this.gravText.setColor('#ce93d8');
 
     const ids = Object.keys(snap.items);
     const summary = ids.map((id) => `${id}×${snap.items[id]}`).join(' ');

@@ -1,40 +1,78 @@
 /**
- * Live run / character state: HP, abilities, inventory, phase, flags.
+ * Live run / character state: HP, abilities, inventory, phase, flags, gravity down.
  *
- * Design defaults (maxHp, starting abilities, phase labels) live in
+ * Design defaults (maxHp, starting abilities, phase labels, ability defs) live in
  * designConfig.js for the 数值策划 bot. This module is the single source
  * of truth for the current playthrough. HUD and gravity logic read here.
  *
+ * Ability tiers live here / in sections.abilities — not mixed into feel numbers.
  * HP is heart-based: default 3/3 (see sections.player.maxHp).
  */
 
-import { getPlayerDesign, getProgressDesign, subscribeDesign } from './designConfig.js';
+import {
+  ABILITY_ID,
+  ABILITY_UNLOCK_ORDER,
+  canonicalAbilityId,
+  getAbilitiesDesign,
+  getGravityDesign,
+  getPlayerDesign,
+  getProgressDesign,
+  subscribeDesign,
+} from './designConfig.js';
+import { normalizeDown } from './gravity.js';
 
 export const ABILITY = Object.freeze({
-  GRAVITY: 'gravity',
-  DOUBLE_JUMP: 'doubleJump',
-  DASH: 'dash',
+  GRAVITY_FALL: ABILITY_ID.GRAVITY_FALL,
+  SURFACE_WALK: ABILITY_ID.SURFACE_WALK,
+  REACTION_JUMP: ABILITY_ID.REACTION_JUMP,
+  GRAVITY_FIELD: ABILITY_ID.GRAVITY_FIELD,
+  /** @deprecated legacy id `gravity` — runtime value is gravityFall */
+  GRAVITY: ABILITY_ID.GRAVITY_FALL,
 });
 
-/** Known ability ids (HUD chips). Unlocked set may include future ids. */
-export const KNOWN_ABILITIES = Object.freeze([ABILITY.GRAVITY, ABILITY.DOUBLE_JUMP, ABILITY.DASH]);
+/** Known ability ids (HUD chips), unlock order. */
+export const KNOWN_ABILITIES = ABILITY_UNLOCK_ORDER;
+
+const BASE_GRANTS = Object.freeze({
+  hasGravity: false,
+  canWalk: false,
+  canJump: false,
+  canWallSlide: false,
+  canWallJump: false,
+  canCrawlCeiling: false,
+  canFly: false,
+  hasFriction: false,
+  gravityDirections: 'none',
+  snapDownOnPickup: false,
+  bodyMode: 'float',
+  toggleAnytime: false,
+  adjustableMagnitude: false,
+  airLocksDirection: true,
+  usesFeelJump: false,
+});
 
 /** @type {Set<(snap: ReturnType<typeof getRunState>) => void>} */
 const listeners = new Set();
+
+function defaultDown() {
+  return normalizeDown(getGravityDesign().defaultDown);
+}
 
 function createInitialRun() {
   const player = getPlayerDesign();
   const progress = getProgressDesign();
   const hp = Math.max(0, Math.min(player.maxHp, player.startingHp));
+  const abilities = new Set(player.startingAbilities.map((id) => canonicalAbilityId(id)).filter(Boolean));
   return {
     hp,
     maxHp: player.maxHp,
-    abilities: new Set(player.startingAbilities),
+    abilities,
     items: { ...player.startingItems },
     phase: progress.defaultPhase,
     flags: {},
     visitedRooms: new Set(),
     deaths: 0,
+    gravityDown: defaultDown(),
   };
 }
 
@@ -60,8 +98,9 @@ function syncFromDesign() {
     run.hp = Math.min(run.hp, run.maxHp);
     changed = true;
   }
-  for (const id of player.startingAbilities) {
-    if (!run.abilities.has(id)) {
+  for (const raw of player.startingAbilities) {
+    const id = canonicalAbilityId(raw);
+    if (id && !run.abilities.has(id)) {
       run.abilities.add(id);
       changed = true;
     }
@@ -88,6 +127,7 @@ export function getRunState() {
     flags: { ...run.flags },
     visitedRooms: [...run.visitedRooms],
     deaths: run.deaths,
+    gravityDown: run.gravityDown,
   };
 }
 
@@ -136,13 +176,15 @@ export function respawn() {
 }
 
 export function hasAbility(id) {
-  return run.abilities.has(id);
+  const key = canonicalAbilityId(id);
+  return Boolean(key && run.abilities.has(key));
 }
 
 export function unlockAbility(id) {
-  if (typeof id !== 'string' || !id) return getRunState();
-  if (run.abilities.has(id)) return getRunState();
-  run.abilities.add(id);
+  const key = canonicalAbilityId(id);
+  if (!key) return getRunState();
+  if (run.abilities.has(key)) return getRunState();
+  run.abilities.add(key);
   notify();
   return getRunState();
 }
@@ -176,6 +218,79 @@ export function setPhase(phase) {
   if (typeof phase !== 'string' || !phase || run.phase === phase) return getRunState();
   run.phase = phase;
   notify();
+  return getRunState();
+}
+
+/** Stacked grants from unlocked abilities (design section, unlock order). */
+export function getAbilityGrants() {
+  const defs = getAbilitiesDesign();
+  const grants = { ...BASE_GRANTS };
+  const order = getPlayerDesign().abilityUnlockOrder ?? ABILITY_UNLOCK_ORDER;
+  for (const id of order) {
+    if (!hasAbility(id)) continue;
+    const extra = defs[id]?.grants;
+    if (extra && typeof extra === 'object') Object.assign(grants, extra);
+  }
+  return grants;
+}
+
+export function getGravityDown() {
+  return run.gravityDown;
+}
+
+export function setGravityDown(axis) {
+  const next = normalizeDown(axis, run.gravityDown);
+  if (next === run.gravityDown) return getRunState();
+  run.gravityDown = next;
+  notify();
+  return getRunState();
+}
+
+export function snapGravityDownToDefault() {
+  return setGravityDown(defaultDown());
+}
+
+/**
+ * Cardinal gravity change: air-locked after gravityFall unless gravityField.
+ * Camera is never rotated — this only writes the down axis.
+ */
+export function canChangeGravityDirection(supported) {
+  const grants = getAbilityGrants();
+  if (!grants.hasGravity) return false;
+  const gravity = getGravityDesign();
+  if (hasAbility(gravity.changeDirectionRequires?.exceptAbility || ABILITY.GRAVITY_FIELD)) {
+    return true;
+  }
+  if (grants.toggleAnytime) return true;
+  if (gravity.airLocksDirection && hasAbility(gravity.airLockRequiresAbility || ABILITY.GRAVITY_FALL)) {
+    return Boolean(supported);
+  }
+  if (gravity.changeDirectionRequires?.groundedOrSupported) return Boolean(supported);
+  return true;
+}
+
+export function trySetGravityDown(axis, supported) {
+  if (!canChangeGravityDirection(supported)) return { changed: false, down: run.gravityDown };
+  const gravity = getGravityDesign();
+  let next = axis;
+  if (gravity.snapDownToNearestAxis && !hasAbility(ABILITY.GRAVITY_FIELD)) {
+    next = normalizeDown(axis, run.gravityDown);
+  }
+  const prev = run.gravityDown;
+  setGravityDown(next);
+  return { changed: prev !== run.gravityDown, down: run.gravityDown };
+}
+
+/** Advance phase from sections.progress.abilityPhases (or phaseAfterGravity). */
+export function advancePhaseOnAbility(abilityId) {
+  const id = canonicalAbilityId(abilityId);
+  const progress = getProgressDesign();
+  const mapped = progress.abilityPhases?.[id];
+  if (mapped) {
+    setPhase(mapped);
+    return getRunState();
+  }
+  if (id === ABILITY.GRAVITY_FALL) return advancePhaseOnGravity();
   return getRunState();
 }
 

@@ -1,15 +1,35 @@
 import Phaser from 'phaser';
-import { ROOMS, GAME_W, GAME_H, getWorldBounds, findRoomAt, UI_FONT_LG, UI_FONT_MD, UI_FONT_SM, px } from '../rooms.js';
+import { GAME_W, GAME_H, getWorldBounds, findRoomAt, UI_FONT_LG, UI_FONT_MD, UI_FONT_SM, px } from '../rooms.js';
 import { applyPlayerFeelLimits, createPlayer } from '../player.js';
-import { getFeel, subscribeDesign } from '../designConfig.js';
+import {
+  getFeel,
+  getGates,
+  getPickups,
+  getRooms,
+  subscribeDesign,
+} from '../designConfig.js';
 import { FeelDebugPanel } from '../feelDebugPanel.js';
 import { addHudText, refreshHudTextResolution } from '../hudText.js';
 import { RunHud } from '../runHud.js';
+import { buildWorldSolids } from '../worldSolids.js';
+import {
+  applyGravityVectorToWorld,
+  axisLabel,
+  composeVelocity,
+  isSupportedOnDown,
+  isTouchingWall,
+  rotateCardinal,
+  splitVelocity,
+  tagFixed,
+} from '../gravity.js';
 import {
   ABILITY,
   addItem,
-  advancePhaseOnGravity,
+  advancePhaseOnAbility,
+  canChangeGravityDirection,
   damage,
+  getAbilityGrants,
+  getGravityDown,
   getHp,
   getMaxHp,
   getPhase,
@@ -20,14 +40,25 @@ import {
   isDead,
   markRoomVisited,
   respawn,
+  setPhase,
+  snapGravityDownToDefault,
+  trySetGravityDown,
   unlockAbility,
 } from '../runState.js';
 
+const WALL_SLIDE_FALL_FACTOR = 0.4;
+
+const PICKUP_COLORS = {
+  gravityOrb: { fill: 0xffeb3b, stroke: 0xfff59d },
+  surfaceWalkOrb: { fill: 0x80deea, stroke: 0xe0f7fa },
+};
+
 /**
- * First-room Metroidvania prototype:
- * float → gravity pickup → walk/jump → room-snap camera → M map → F1 feel debug.
+ * Metroidvania prototype:
+ * float → gravityFall (falling body) → cardinal gravity to R2 → flip up into R4
+ * → surfaceWalk (friction + wall slide) → room-snap camera → M map → F1 feel.
  *
- * Future tilemap stub: replace buildSolids() with Phaser Tilemap / Tiled JSON.
+ * Gravity rotates the accel vector only. Camera stays axis-aligned.
  */
 export class GameScene extends Phaser.Scene {
   constructor() {
@@ -40,20 +71,29 @@ export class GameScene extends Phaser.Scene {
     this.jumpHeld = false;
   }
 
+  rooms() {
+    return getRooms();
+  }
+
   create() {
-    const world = getWorldBounds();
+    const rooms = this.rooms();
+    const world = getWorldBounds(rooms);
     this.physics.world.setBounds(world.x, world.y, world.w, world.h);
+    this.physics.world.gravity.x = 0;
     this.physics.world.gravity.y = 0;
 
     this.drawRoomBackgrounds();
     this.solids = this.physics.add.staticGroup();
-    this.buildSolids();
+    buildWorldSolids(this, this.solids, rooms, getGates());
 
     this.player = createPlayer(this, px(100), px(72));
-    this.pickup = this.createPickup(px(128), px(68));
+    this.player.setData('fixed', false);
+
+    this.pickupGroup = this.physics.add.group();
+    this.spawnPickups();
 
     this.physics.add.collider(this.player, this.solids);
-    this.physics.add.overlap(this.player, this.pickup, this.onPickup, null, this);
+    this.physics.add.overlap(this.player, this.pickupGroup, this.onPickup, null, this);
 
     this.cursors = this.input.keyboard.createCursorKeys();
     this.input.keyboard.addCapture([Phaser.Input.Keyboard.KeyCodes.F1]);
@@ -65,6 +105,12 @@ export class GameScene extends Phaser.Scene {
       m: Phaser.Input.Keyboard.KeyCodes.M,
       f1: Phaser.Input.Keyboard.KeyCodes.F1,
       backtick: Phaser.Input.Keyboard.KeyCodes.BACKTICK,
+      q: Phaser.Input.Keyboard.KeyCodes.Q,
+      e: Phaser.Input.Keyboard.KeyCodes.E,
+      i: Phaser.Input.Keyboard.KeyCodes.I,
+      j: Phaser.Input.Keyboard.KeyCodes.J,
+      k: Phaser.Input.Keyboard.KeyCodes.K,
+      l: Phaser.Input.Keyboard.KeyCodes.L,
     });
 
     this.statusText = addHudText(this, GAME_W / 2, px(28), '', {
@@ -97,11 +143,8 @@ export class GameScene extends Phaser.Scene {
     this._unsubDesign = subscribeDesign(() => this.applyLiveFeel());
     this.applyLiveFeel();
     this.syncGravityFromState();
-    if (hasAbility(ABILITY.GRAVITY) && this.pickup?.active) {
-      this.pickup.destroy();
-    }
 
-    const startRoom = findRoomAt(this.player.x, this.player.y) || ROOMS[0];
+    const startRoom = findRoomAt(this.player.x, this.player.y, rooms) || rooms[0];
     this.markVisited(startRoom);
     this.snapCameraToRoom(startRoom, true);
 
@@ -122,31 +165,38 @@ export class GameScene extends Phaser.Scene {
   }
 
   hintLine() {
-    return hasAbility(ABILITY.GRAVITY)
-      ? 'A/D MOVE  W/SPACE JUMP  M MAP  F1 FEEL  F FULL'
-      : 'NUDGE TO YELLOW: GRAVITY  |  M MAP  |  F1 FEEL  |  F FULL';
+    const grants = getAbilityGrants();
+    if (!grants.hasGravity) {
+      return 'NUDGE TO YELLOW: GRAVITY FALL  |  M MAP  |  F1 FEEL  |  F FULL';
+    }
+    const grav = 'Q/E ROT  IJKL SET DOWN';
+    if (grants.canJump) return `A/D WALK  W/SPACE JUMP  ${grav}  M  F1`;
+    if (grants.canWalk) return `A/D WALK/SLIDE  ${grav}  M MAP  F1 FEEL`;
+    return `FALL BODY  ${grav}  (no walk/jump)  M MAP  F1`;
   }
 
   gravityOn() {
-    return hasAbility(ABILITY.GRAVITY);
+    return getAbilityGrants().hasGravity;
   }
 
   syncGravityFromState() {
-    if (!this.player || !this.gravityOn()) return;
     const feel = getFeel();
-    this.physics.world.gravity.y = feel.gravityY;
-    this.player.body.setAllowGravity(true);
-    applyPlayerFeelLimits(this.player, feel);
+    const grants = getAbilityGrants();
+    applyGravityVectorToWorld(this.physics.world, feel.gravityY, getGravityDown(), {
+      enabled: grants.hasGravity,
+    });
+    if (this.player) {
+      applyPlayerFeelLimits(this.player, feel);
+      if (grants.hasGravity) this.player.body?.setAllowGravity(true);
+      else this.player.body?.setAllowGravity(false);
+    }
     this.hintText?.setText(this.hintLine());
   }
 
   applyLiveFeel() {
     const feel = getFeel();
     applyPlayerFeelLimits(this.player, feel);
-    if (this.gravityOn()) {
-      this.physics.world.gravity.y = feel.gravityY;
-      this.player?.body?.setAllowGravity(true);
-    }
+    this.syncGravityFromState();
     this.debugPanel?.refreshFields();
     this.hintText?.setText(this.hintLine());
   }
@@ -168,10 +218,16 @@ export class GameScene extends Phaser.Scene {
   }
 
   drawRoomBackgrounds() {
-    const colors = [0x16213e, 0x1a2744, 0x1f2f4d, 0x142038];
-    ROOMS.forEach((room, i) => {
+    const colors = {
+      R0: 0x16213e,
+      R1: 0x1a2744,
+      R2: 0x1f2f4d,
+      R3: 0x142038,
+      R4: 0x14302a,
+    };
+    for (const room of this.rooms()) {
       const g = this.add.graphics();
-      g.fillStyle(colors[i % colors.length], 1);
+      g.fillStyle(colors[room.id] ?? 0x16213e, 1);
       g.fillRect(room.x, room.y, room.w, room.h);
       g.lineStyle(2, 0x3d5a80, 0.6);
       g.strokeRect(room.x + 1, room.y + 1, room.w - 2, room.h - 2);
@@ -180,7 +236,7 @@ export class GameScene extends Phaser.Scene {
         color: '#546e7a',
       }).setDepth(1);
       g.setDepth(0);
-    });
+    }
   }
 
   buildMapOverlay() {
@@ -196,11 +252,12 @@ export class GameScene extends Phaser.Scene {
     }).setOrigin(0.5, 0);
     this.mapRoot.add(title);
 
+    const rooms = this.rooms();
     let minX = Infinity;
     let minY = Infinity;
     let maxX = -Infinity;
     let maxY = -Infinity;
-    for (const r of ROOMS) {
+    for (const r of rooms) {
       minX = Math.min(minX, r.x);
       minY = Math.min(minY, r.y);
       maxX = Math.max(maxX, r.x + r.w);
@@ -215,7 +272,7 @@ export class GameScene extends Phaser.Scene {
     const oy = px(34);
 
     this.mapRoomGfx = {};
-    for (const r of ROOMS) {
+    for (const r of rooms) {
       const rx = ox + (r.x - minX) * scale;
       const ry = oy + (r.y - minY) * scale;
       const rw = Math.max(px(8), r.w * scale - 2);
@@ -295,8 +352,9 @@ export class GameScene extends Phaser.Scene {
   refreshMapOverlay() {
     if (!this.mapVisible) return;
     const { ox, oy, minX, minY, scale } = this.mapLayout;
-    for (const r of ROOMS) {
+    for (const r of this.rooms()) {
       const gfx = this.mapRoomGfx[r.id];
+      if (!gfx) continue;
       const visited = hasVisitedRoom(r.id);
       const current = r.id === this.currentRoomId;
       let fill = 0x212121;
@@ -312,84 +370,36 @@ export class GameScene extends Phaser.Scene {
     );
   }
 
-  /**
-   * Build floors, platforms, and walls as static Arcade bodies.
-   * Stub for future Tiled tilemap integration.
-   */
-  buildSolids() {
-    const addRect = (x, y, w, h, color = 0x5d4037) => {
-      const key = `solid_${x}_${y}_${w}_${h}`;
-      if (!this.textures.exists(key)) {
-        const g = this.make.graphics({ x: 0, y: 0, add: false });
-        g.fillStyle(color, 1);
-        g.fillRect(0, 0, w, h);
-        g.lineStyle(2, 0x8d6e63, 1);
-        g.strokeRect(0, 0, w, h);
-        g.generateTexture(key, w, h);
-        g.destroy();
-      }
-      const s = this.solids.create(x + w / 2, y + h / 2, key);
-      s.refreshBody();
-      s.setDepth(5);
-      return s;
-    };
-
-    const floorH = px(16);
-    const wallW = px(8);
-    const platH = px(8);
-
-    const r0 = ROOMS[0];
-    addRect(r0.x, r0.y + r0.h - floorH, r0.w, floorH, 0x4e342e);
-    addRect(r0.x, r0.y, wallW, r0.h, 0x3e2723);
-    addRect(r0.x, r0.y, r0.w, wallW, 0x3e2723);
-    addRect(r0.x + px(100), r0.y + px(100), px(48), platH, 0x6d4c41);
-    addRect(r0.x + px(200), r0.y + r0.h - floorH - px(24), px(24), px(24), 0x795548);
-
-    const r1 = ROOMS[1];
-    addRect(r1.x, r1.y + r1.h - floorH, px(80), floorH, 0x4e342e);
-    addRect(r1.x + px(120), r1.y + r1.h - floorH, px(80), floorH, 0x4e342e);
-    addRect(r1.x + px(240), r1.y + r1.h - floorH, px(80), floorH, 0x4e342e);
-    addRect(r1.x, r1.y, r1.w, wallW, 0x3e2723);
-    addRect(r1.x + px(40), r1.y + px(90), px(40), platH, 0x6d4c41);
-    addRect(r1.x + px(180), r1.y + px(70), px(56), platH, 0x6d4c41);
-
-    const r2 = ROOMS[2];
-    addRect(r2.x, r2.y + r2.h - floorH, r2.w, floorH, 0x4e342e);
-    addRect(r2.x + r2.w - wallW, r2.y, wallW, r2.h, 0x3e2723);
-    addRect(r2.x, r2.y, r2.w, wallW, 0x3e2723);
-    addRect(r2.x + px(60), r2.y + px(110), px(40), platH, 0x6d4c41);
-    addRect(r2.x + px(160), r2.y + px(80), px(40), platH, 0x6d4c41);
-    addRect(r2.x + px(240), r2.y + r2.h - floorH - px(32), px(32), px(32), 0x795548);
-
-    const r3 = ROOMS[3];
-    addRect(r3.x, r3.y + r3.h - floorH, r3.w, floorH, 0x4e342e);
-    addRect(r3.x, r3.y, wallW, r3.h, 0x3e2723);
-    addRect(r3.x + r3.w - wallW, r3.y, wallW, r3.h, 0x3e2723);
-    addRect(r3.x + px(80), r3.y + px(80), px(48), platH, 0x6d4c41);
-    addRect(r3.x + px(180), r3.y + px(100), px(48), platH, 0x6d4c41);
-    addRect(r3.x, r3.y, px(100), wallW, 0x3e2723);
-    addRect(r3.x + px(220), r3.y, px(100), wallW, 0x3e2723);
+  spawnPickups() {
+    for (const spec of getPickups()) {
+      if (spec.ability && hasAbility(spec.ability)) continue;
+      const sprite = this.createPickup(spec);
+      this.pickupGroup.add(sprite);
+    }
   }
 
-  createPickup(x, y) {
-    const key = 'pickup';
+  createPickup(spec) {
+    const colors = PICKUP_COLORS[spec.id] || { fill: 0xffeb3b, stroke: 0xfff59d };
+    const key = `pickup_${spec.id}`;
     if (!this.textures.exists(key)) {
       const g = this.make.graphics({ x: 0, y: 0, add: false });
       const r = px(8);
-      g.fillStyle(0xffeb3b, 1);
+      g.fillStyle(colors.fill, 1);
       g.fillCircle(r, r, r);
-      g.lineStyle(2, 0xfff59d, 1);
+      g.lineStyle(2, colors.stroke, 1);
       g.strokeCircle(r, r, r);
       g.generateTexture(key, r * 2, r * 2);
       g.destroy();
     }
-    const p = this.physics.add.sprite(x, y, key);
+    const p = this.physics.add.sprite(spec.x, spec.y, key);
     p.body.setAllowGravity(false);
     p.body.setImmovable(true);
     p.setDepth(8);
+    tagFixed(p);
+    p.setData('pickup', spec);
     this.tweens.add({
       targets: p,
-      y: y - px(4),
+      y: spec.y - px(4),
       duration: 700,
       yoyo: true,
       repeat: -1,
@@ -400,13 +410,26 @@ export class GameScene extends Phaser.Scene {
 
   onPickup(_player, pickup) {
     if (!pickup.active) return;
+    const spec = pickup.getData('pickup');
     pickup.destroy();
-    unlockAbility(ABILITY.GRAVITY);
-    addItem('gravityOrb', 1);
-    advancePhaseOnGravity();
+    if (!spec) return;
+
+    const ability = spec.onCollect?.unlockAbility || spec.ability;
+    if (ability) {
+      unlockAbility(ability);
+      if (ability === ABILITY.GRAVITY_FALL) snapGravityDownToDefault();
+    }
+    const items = spec.onCollect?.addItem;
+    if (items) {
+      for (const [id, count] of Object.entries(items)) addItem(id, count);
+    }
+    if (spec.onCollect?.advancePhase) setPhase(spec.onCollect.advancePhase);
+    else if (ability) advancePhaseOnAbility(ability);
+
     this.syncGravityFromState();
 
-    this.statusText.setText('GRAVITY ON');
+    const banner = spec.onCollect?.statusBanner || (ability ? String(ability).toUpperCase() : 'GOT');
+    this.statusText.setText(banner);
     this.statusText.setVisible(true);
     this.time.delayedCall(2000, () => this.statusText.setVisible(false));
     this.hintText.setText(this.hintLine());
@@ -417,23 +440,57 @@ export class GameScene extends Phaser.Scene {
     this.currentRoomId = room.id;
     this.markVisited(room);
     const cam = this.cameras.main;
+    // Vector-only gravity: never rotate the camera.
+    cam.setRotation(0);
     cam.setBounds(room.x, room.y, room.w, room.h);
     if (instant) cam.setScroll(room.x, room.y);
     else cam.pan(room.x + room.w / 2, room.y + room.h / 2, 180, 'Linear', true);
   }
 
-  tryJump(now, feel) {
+  tryJump(now, feel, down) {
+    const grants = getAbilityGrants();
+    if (!grants.canJump) return false;
     if (now > this.coyoteUntil) return false;
-    this.player.setVelocityY(feel.jumpVelocity);
+    const parts = splitVelocity(this.player.body.velocity.x, this.player.body.velocity.y, down);
+    const next = composeVelocity(down, parts.walk, feel.jumpVelocity);
+    this.player.setVelocity(next.x, next.y);
     this.coyoteUntil = 0;
     this.jumpBufferUntil = 0;
     this.jumpHeld = true;
     return true;
   }
 
+  handleGravityInput(supported) {
+    if (this.debugVisible) return;
+    if (!canChangeGravityDirection(supported)) {
+      Phaser.Input.Keyboard.JustDown(this.keys.q);
+      Phaser.Input.Keyboard.JustDown(this.keys.e);
+      Phaser.Input.Keyboard.JustDown(this.keys.i);
+      Phaser.Input.Keyboard.JustDown(this.keys.j);
+      Phaser.Input.Keyboard.JustDown(this.keys.k);
+      Phaser.Input.Keyboard.JustDown(this.keys.l);
+      return;
+    }
+
+    const down = getGravityDown();
+    let next = null;
+    if (Phaser.Input.Keyboard.JustDown(this.keys.q)) next = rotateCardinal(down, -1);
+    else if (Phaser.Input.Keyboard.JustDown(this.keys.e)) next = rotateCardinal(down, 1);
+    else if (Phaser.Input.Keyboard.JustDown(this.keys.i)) next = 'up';
+    else if (Phaser.Input.Keyboard.JustDown(this.keys.k)) next = 'down';
+    else if (Phaser.Input.Keyboard.JustDown(this.keys.j)) next = 'left';
+    else if (Phaser.Input.Keyboard.JustDown(this.keys.l)) next = 'right';
+
+    if (!next) return;
+    const result = trySetGravityDown(next, supported);
+    if (result.changed) this.syncGravityFromState();
+  }
+
   update(time) {
     const body = this.player.body;
-    const grounded = body.blocked.down || body.touching.down;
+    const down = getGravityDown();
+    const grants = getAbilityGrants();
+    const grounded = isSupportedOnDown(body, down);
     const now = time;
     const feel = getFeel();
 
@@ -450,6 +507,7 @@ export class GameScene extends Phaser.Scene {
       this.debugPanel.refreshStatus({
         room: this.currentRoomId,
         gravityOn: this.gravityOn(),
+        gravityDown: down,
         grounded,
         coyote: Math.max(0, Math.ceil(this.coyoteUntil - now)),
         x: this.player.x,
@@ -465,11 +523,12 @@ export class GameScene extends Phaser.Scene {
     if (this.mapVisible) {
       consumeJumpEdges();
       this.refreshMapOverlay();
-      this.player.setVelocityX(0);
+      this.player.setVelocity(0, 0);
       return;
     }
 
     if (grounded) this.coyoteUntil = now + feel.coyoteMs;
+    this.handleGravityInput(grounded);
 
     const left = this.cursors.left.isDown || this.keys.a.isDown;
     const right = this.cursors.right.isDown || this.keys.d.isDown;
@@ -484,21 +543,42 @@ export class GameScene extends Phaser.Scene {
       Phaser.Input.Keyboard.JustUp(this.keys.w) ||
       Phaser.Input.Keyboard.JustUp(this.keys.space);
 
-    if (this.gravityOn()) {
-      const speed = grounded ? feel.moveSpeed : feel.moveSpeed * feel.airControl;
-      let vx = 0;
-      if (left) vx = -speed;
-      else if (right) vx = speed;
-      this.player.setVelocityX(vx);
+    if (grants.hasGravity) {
+      const parts = splitVelocity(body.velocity.x, body.velocity.y, down);
+      let walk = parts.walk;
+      let along = parts.alongGravity;
 
-      if (jumpPressed) this.jumpBufferUntil = now + feel.jumpBufferMs;
-      if (now <= this.jumpBufferUntil) this.tryJump(now, feel);
-
-      if (jumpReleased && this.jumpHeld && body.velocity.y < 0) {
-        this.player.setVelocityY(body.velocity.y * feel.jumpCutMultiplier);
-        this.jumpHeld = false;
+      if (grants.canWalk) {
+        const speed = grounded ? feel.moveSpeed : feel.moveSpeed * feel.airControl;
+        if (left && !right) walk = -speed;
+        else if (right && !left) walk = speed;
+        else if (grants.hasFriction && grounded) walk = 0;
+      } else {
+        // I: falling body — no walk / jump / wall-slide.
+        walk = grounded ? 0 : walk;
       }
-      if (!jumpDown) this.jumpHeld = false;
+
+      if (grants.canWallSlide && !grounded && isTouchingWall(body, down)) {
+        const slideMax = feel.maxFallSpeed * WALL_SLIDE_FALL_FACTOR;
+        if (along > slideMax) along = slideMax;
+      }
+
+      const next = composeVelocity(down, walk, along);
+      this.player.setVelocity(next.x, next.y);
+
+      if (grants.canJump) {
+        if (jumpPressed) this.jumpBufferUntil = now + feel.jumpBufferMs;
+        if (now <= this.jumpBufferUntil) this.tryJump(now, feel, down);
+
+        if (jumpReleased && this.jumpHeld && along < 0) {
+          const cut = composeVelocity(down, walk, along * feel.jumpCutMultiplier);
+          this.player.setVelocity(cut.x, cut.y);
+          this.jumpHeld = false;
+        }
+        if (!jumpDown) this.jumpHeld = false;
+      } else {
+        consumeJumpEdges();
+      }
     } else {
       let vx = 0;
       if (left) vx = -feel.floatNudge;
@@ -509,7 +589,7 @@ export class GameScene extends Phaser.Scene {
       this.player.setVelocityY((baseY + bob - this.player.y) * 4);
     }
 
-    const room = findRoomAt(this.player.x, this.player.y);
+    const room = findRoomAt(this.player.x, this.player.y, this.rooms());
     if (room && room.id !== this.currentRoomId) {
       this.snapCameraToRoom(room, true);
     }

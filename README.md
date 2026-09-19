@@ -1,15 +1,17 @@
 # Metroidvania Phaser Prototype / 银河战士式 Phaser 原型
 
-Phaser 3 + Vite indie prototype: floating start → gravity pickup → walk/jump → room-snapping camera.
+Phaser 3 + Vite indie prototype: floating start → **gravityFall** (falling body) → cardinal gravity vector → **surfaceWalk** in R4. Camera stays axis-aligned; only the gravity *vector* rotates.
 
-Phaser 3 + Vite 独立游戏原型：漂浮开场 → 重力拾取 → 行走跳跃 → 房间相机切换。
+Phaser 3 + Vite 独立游戏原型：漂浮开场 → **gravityFall**（落体）→ 四向重力矢量 → R4 **surfaceWalk**。只转重力矢量，镜头不转。
 
 ## How to play / 操作
 
 | Key / 按键 | Action / 作用 |
 |---|---|
-| A / D or ← → | Move left/right **after** gravity / 重力开启后左右移动 |
-| W / Space / ↑ | Jump when grounded **after** gravity / 重力开启且着地后跳跃 |
+| A / D or ← → | Walk along current gravity **after surfaceWalk** (tangent to down). No ground walk on gravityFall alone. / 仅 **surfaceWalk** 后沿当前 down 的切向行走。只有 gravityFall 时不能走。 |
+| W / Space / ↑ | Jump — **requires reactionJump** (stub this iteration; no pickup). / 跳跃需要 **reactionJump**（本迭代仅数据桩，无拾取）。 |
+| Q / E | Rotate gravity down 90° CCW / CW when **grounded** (air-locked after gravityFall). Debugger-open **E** still exports JSON. / 着地时逆/顺时针转 90°。空中锁定。调试开着时 E 仍是导出。 |
+| I / J / K / L | Set down to **up / left / down / right** when grounded. / 着地时把 down 设为 上/左/下/右。 |
 | M | Room map overlay / 房间地图 |
 | F | Toggle browser Fullscreen API on the game container (Esc exits). F11 is the browser's own chrome fullscreen and also relayouts. / 游戏容器全屏（Esc 退出）。F11 仍是浏览器全屏，同样会重算缩放。 |
 | 9 / 0 | Debug: take 1 damage / heal 1 HP (death stub respawns HP; abilities stay). / 调试：受伤 / 回血（倒下后回满 HP，能力保留） |
@@ -20,17 +22,25 @@ Phaser 3 + Vite 独立游戏原型：漂浮开场 → 重力拾取 → 行走跳
 | E (debugger open) | Export design JSON (download + clipboard) / 导出策划 JSON |
 | R (debugger open) | Reset feel values to defaults / 恢复默认手感 |
 
-**Before gravity:** player floats; no walk/jump (only a gentle air nudge with A/D to reach the yellow pickup). Touch pickup → unlocks ability `gravity`, phase `intro` → `exploration`, and `GRAVITY ON`.
+**Before gravityFall:** player floats; no walk/jump (only a gentle air nudge with A/D to reach the yellow orb). Touch it → unlocks `gravityFall` (legacy id `gravity` maps on import), snaps down to **down**, phase `intro` → `exploration`, banner `GRAVITY ON`. You are a **falling body**: no walk, jump, wall-slide, ceiling crawl, or fly. Change cardinal down only while supported.
 
-**重力开启前：** 角色漂浮，不能正常行走/跳跃（仅可用 A/D 轻微空中挪动去碰黄色拾取物）。触碰后解锁能力 `gravity`，阶段从 `intro` 进入 `exploration`，并显示 `GRAVITY ON`。
+**gravityFall 前：** 角色漂浮，不能走/跳（仅 A/D 轻挪去碰黄色球）。拾取后解锁 `gravityFall`（旧 id `gravity` 导入时映射），down 吸附为下，阶段 `intro` → `exploration`。此时是落体：不能走/跳/滑墙。仅着地时可改四向重力。
 
-The compact HUD (top-left / top-right) always shows **HP hearts (default 3/3)**, current **phase**, ability chips (`[GRAV]` once unlocked; `jump` / `dash` stubs), and an item summary. F1 / M overlays hide it so they do not fight.
+**surfaceWalk (teal orb in R4 at 1320, −320):** walk with friction along current down + wall slide. Still no jump. Phase → `frictionLesson`. `reactionJump` / `gravityField` exist in design data only (no pickups this iteration).
 
-左上/右上常驻 HUD：HP 心（默认 3/3）、阶段、能力芯片、物品摘要。F1 / M 打开时隐藏，避免叠在调试层上。
+**surfaceWalk（R4 青色球）：** 沿当前 down 摩擦行走 + 滑墙，仍不能跳。阶段进入 `frictionLesson`。`reactionJump` / `gravityField` 仅数据桩。
 
-Explore rooms R0 → R1 → R2 (horizontal) and R3 (below R1). Camera snaps to the current room.
+The compact HUD (top-left / top-right) always shows **HP hearts (default 3/3)**, current **phase**, ability chips (`[FALL]` / `[WALK]` / jump / field stubs), current **DOWN** axis after gravityFall, and an item summary. F1 / M overlays hide it so they do not fight.
 
-探索房间 R0 → R1 → R2（横向）以及 R3（R1 下方）。相机按房间吸附切换。
+左上/右上常驻 HUD：HP 心、阶段、能力芯片（FALL / WALK / jump / field）、当前 DOWN、物品摘要。F1 / M 打开时隐藏。
+
+Explore R0 → R1 → R2 (horizontal), legacy **R3 under R1** at (640, 360), and new friction room **R4 above R2** at (1280, −360). M-map includes negative Y. Camera room-snaps (never rotates) into R4 through ceiling gate `gate_R2_to_R4` at (1520, 0, 80×16) — flip down to **up** while standing under the hole.
+
+房间：R0→R1→R2，旧 R3 仍在 R1 下方 (640, 360)，新摩擦房 **R4 在 R2 正上方** (1280, −360)。地图支持负 Y。R2 把 down 翻成 up，从天花板门落入 R4。镜头不转。
+
+**Success path:** R0 float → yellow orb → gravityFall → reach R2 via cardinal gravity (fall right, catch the pillar under the gate, flip down) → set down = up → fall into R4 → teal orb → surfaceWalk → walk/slide.
+
+**成功路径：** R0 漂浮 → 黄球 → gravityFall → 四向重力到 R2（向右落、在门下立柱着地、再翻 down）→ down=up 落入 R4 → 青球 → surfaceWalk → 走/滑。
 
 ## Run locally / 本地运行
 
@@ -89,9 +99,9 @@ Pre-640×360 `localStorage` feel dumps (no `logicalW`/`logicalH`) are ignored so
 
 旧版 localStorage（没有逻辑分辨率标记）会被忽略，避免把 320 速度套到 640 世界上。**R** 只重置策划默认，不会清掉本局已解锁的重力。
 
-Live values live in `src/designConfig.js` (`getFeel()` / `applyFeel(patch)`). Opening the F1 panel lists every feel field; changing a value applies immediately (if gravity is already on, `gravityY` updates `physics.world.gravity.y` and max fall speed). Tweaks persist in `localStorage` under `phymetroid.designConfig` until you press **R** to reset.
+Live values live in `src/designConfig.js` (`getFeel()` / `applyFeel(patch)`). Opening the F1 panel lists every feel field (**keys unchanged**); changing a value applies immediately. After gravityFall, `gravityY` is the **vector magnitude** applied as Arcade `world.gravity` on the current down axis (camera is not rotated). Tweaks persist in `localStorage` under `phymetroid.designConfig` until you press **R** to reset.
 
-手感数值集中在 `src/designConfig.js`。F1 面板可即时改跳/走/重力；重力已开启时改 `gravityY` 会立刻改世界重力。调整会写入 `localStorage`，**R** 清回默认。
+手感数值集中在 `src/designConfig.js`。F1 手感键未改。重力开启后 `gravityY` 是矢量大小，沿当前 down 写入 Arcade 世界重力，镜头不转。调整写入 `localStorage`，**R** 清回默认。
 
 ## Design JSON / 策划 bot 契约
 
@@ -101,43 +111,27 @@ F1 调试打开时按 **E** 下载该 JSON（并尽量复制到剪贴板）。�
 
 ```json
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "game": "phymetroid",
-  "exportedAt": "2026-09-19T10:30:00.000Z",
+  "logicalW": 640,
+  "logicalH": 360,
+  "worldScale": 2,
   "sections": {
-    "feel": {
-      "moveSpeed": 220,
-      "airControl": 0.85,
-      "jumpVelocity": -550,
-      "jumpCutMultiplier": 0.45,
-      "gravityY": 1960,
-      "maxFallSpeed": 640,
-      "coyoteMs": 90,
-      "jumpBufferMs": 100,
-      "floatNudge": 56
-    },
-    "player": {
-      "maxHp": 3,
-      "startingHp": 3,
-      "startingAbilities": [],
-      "startingItems": {}
-    },
-    "progress": {
-      "defaultPhase": "intro",
-      "phaseAfterGravity": "exploration",
-      "phaseLabels": {
-        "intro": "INTRO",
-        "exploration": "EXPLORE",
-        "boss": "BOSS"
-      }
-    }
+    "feel": { "moveSpeed": 220, "gravityY": 1960 },
+    "gravity": { "rotateVectorOnly": true, "rotateCamera": false, "defaultDown": "down" },
+    "abilities": { "gravityFall": { "tier": "I" }, "surfaceWalk": { "tier": "II" } },
+    "player": { "maxHp": 3, "startingAbilities": [], "abilityUnlockOrder": ["gravityFall", "surfaceWalk", "reactionJump", "gravityField"] },
+    "progress": { "abilityPhases": { "gravityFall": "exploration", "surfaceWalk": "frictionLesson" }, "pathIntent": {} },
+    "rooms": [{ "id": "R4", "x": 1280, "y": -360, "w": 640, "h": 360 }],
+    "pickups": [{ "id": "surfaceWalkOrb", "x": 1320, "y": -320 }],
+    "gates": [{ "id": "gate_R2_to_R4", "world": { "x": 1520, "y": 0, "w": 80, "h": 16 } }]
   }
 }
 ```
 
-**Compatibility / 兼容：** `schemaVersion` 2. A v1 `{ sections: { feel } }` dump still applies; `player` / `progress` are merged only when present. v1 importers that only read `sections.feel` can ignore the new keys.
+**Compatibility / 兼容：** `schemaVersion` 3. v1 `{ sections: { feel } }` and v2 player/progress dumps still apply; missing sections keep current values. Pixel feel numbers are already 640×360 (WORLD_SCALE×2) — **do not re-scale**. Legacy `"gravity"` in `startingAbilities` / unlock lists maps to `"gravityFall"`. Older importers that only read `sections.feel` can ignore the new keys.
 
-v1 只有 `feel` 的 JSON 仍可导入；新字段缺省则保持当前值。只读 `feel` 的旧导入器可安全忽略 `player` / `progress`。
+v1 / v2 仍可导入；手感像素值已是 640×360，不要再乘 2。旧能力 id `gravity` 会映射成 `gravityFall`。
 
 Keys are **camelCase**. Feel mapping: `moveSpeed` walk speed, `airControl` airborne fraction of walk speed, `jumpVelocity` upward impulse (negative = up), `jumpCutMultiplier` early-release keep ratio, `gravityY` Arcade gravity after pickup, `maxFallSpeed` max vy, `coyoteMs` / `jumpBufferMs` jump forgiveness, `floatNudge` pre-gravity A/D nudge.
 
@@ -155,9 +149,9 @@ Keys are **camelCase**. Feel mapping: `moveSpeed` walk speed, `airControl` airbo
 
 导入先保持最小：启动读 localStorage；程序用上面的全局函数。完整文件选择器留给以后的策划 bot。
 
-Applying `{ sections: { player: { startingAbilities: ["gravity"] } } }` unions `gravity` into the live run and turns world gravity on (single source of truth). Changing `maxHp` clamps current HP.
+Applying `{ sections: { player: { startingAbilities: ["gravity"] } } }` maps to `gravityFall`, unions it into the live run, and turns the gravity **vector** on (default down). `startingAbilities: ["gravityFall"]` is the v3 spelling. Changing `maxHp` clamps current HP.
 
-写入 `startingAbilities: ["gravity"]` 会并入本局能力并开重力；改 `maxHp` 会钳制当前 HP。
+写入旧 id `"gravity"` 或 `"gravityFall"` 都会并入本局并打开重力矢量；改 `maxHp` 会钳制当前 HP。
 
 ## Display / 显示
 
@@ -183,8 +177,9 @@ This copies shared modules into `docs/src/` and rewrites Phaser imports to the U
 
 - Phaser **3.80+**, Arcade Physics (AABB)
 - Logical resolution **640×360**, `Scale.NONE` + integer zoom + leftover CSS fill + `pixelArt` / `roundPixels`
-- Live run state: `src/runState.js` (HP 3/3 hearts, abilities, items, phase, flags)
-- Rooms data: `src/rooms.js` (`WORLD_SCALE` / `px()` map the original 320×180 layout)
+- Live run state: `src/runState.js` (HP, abilities, gravity down, items, phase, flags)
+- Gravity vector: `src/gravity.js` (cardinal snap, Arcade accel, no camera rotate)
+- Rooms data: `src/rooms.js` (`WORLD_SCALE` / `px()`; R4 at y = −360)
 
 ## Project layout / 目录
 
@@ -192,8 +187,10 @@ This copies shared modules into `docs/src/` and rewrites Phaser imports to the U
 src/main.js
 src/scenes/GameScene.js
 src/rooms.js
+src/gravity.js         # gravity vector (not camera)
+src/worldSolids.js     # static room geometry + R2↔R4 gate
 src/player.js
-src/runState.js        # live HP / abilities / items / phase / flags
+src/runState.js        # live HP / abilities / gravity down / items / phase
 src/runHud.js          # compact always-on run HUD
 src/viewport.js        # integer zoom + CSS fill + F fullscreen
 src/scaleZoom.js       # computeIntegerZoom / leftover CSS fill

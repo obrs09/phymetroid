@@ -39,9 +39,15 @@ export function ensurePlayerTexture(scene, key = 'player') {
   return key;
 }
 
+/**
+ * Cap both axes by maxFallSpeed so a left/right gravity vector is not
+ * clamped by the old "vx = walk, vy = fall" Arcade maxVelocity split.
+ * Walk speed is applied explicitly on the tangent; jump uses feel.jumpVelocity.
+ */
 export function applyPlayerFeelLimits(player, feel = getFeel()) {
   if (!player) return;
-  player.setMaxVelocity(feel.moveSpeed * MAX_VELOCITY_X_FACTOR, feel.maxFallSpeed);
+  const cap = Math.max(feel.maxFallSpeed, feel.moveSpeed * MAX_VELOCITY_X_FACTOR);
+  player.setMaxVelocity(cap, cap);
 }
 
 /**
