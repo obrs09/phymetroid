@@ -112,6 +112,7 @@ F1 调试打开时按 **E** 下载该 JSON（并尽量复制到剪贴板）。�
 ```json
 {
   "schemaVersion": 4,
+  "layoutRevision": 5,
   "game": "phymetroid",
   "logicalW": 640,
   "logicalH": 360,
@@ -132,9 +133,9 @@ F1 调试打开时按 **E** 下载该 JSON（并尽量复制到剪贴板）。�
 }
 ```
 
-**Compatibility / 兼容：** `schemaVersion` 4. v1 `{ sections: { feel } }`, v2 player/progress, and v3 rooms-without-solids dumps still apply; missing sections keep current values. If `rooms[i].solids` is empty, the engine falls back to the v3 hardcoded layout in `worldSolids.js`. Pixel feel numbers are already 640×360 (WORLD_SCALE×2) — **do not re-scale**. Legacy `"gravity"` in `startingAbilities` / unlock lists maps to `"gravityFall"`. Feel debugger keys are unchanged. Older importers that only read `sections.feel` can ignore the new keys.
+**Compatibility / 兼容：** `schemaVersion` 4, `layoutRevision` 5. v1 `{ sections: { feel } }`, v2 player/progress, and v3 rooms-without-solids dumps still apply; missing sections keep current values. If `rooms[i].solids` is empty, the engine falls back to the v3 hardcoded layout in `worldSolids.js`. Pixel feel numbers are already 640×360 (WORLD_SCALE×2) — **do not re-scale**. Legacy `"gravity"` in `startingAbilities` / unlock lists maps to `"gravityFall"`. Feel debugger keys are unchanged. Older importers that only read `sections.feel` can ignore the new keys. A stored v4 dump with the old full-height `R2_doorframe` or R3 ceilings `0–200` / `440–640` is migrated on boot.
 
-Default Pages boot embeds `src/design/default-v4.json` (no manual paste). Solids default to `space: "local"` (world = room origin + xy). `space: "world"` is allowed for cross-room pieces. `R2_doorframe` is a short catch stub at the right edge of `gate_R2_to_R4` (local `(320, 264, 24, 64)` → world `(1600, 264)`), not a full-height wall. `gapGateId` cuts a hole only when that gate has a `world` rect (`gate_R2_to_R4`); the engine also X-splits any solid that 2D-overlaps a gate opening. `gate_R1_to_R3` has no world — R1→R3 openings are the pits between `R1_floorA/B/C`. Shared R0|R1|R2 corridor walls stay omitted; the engine still merges abutting corridor slabs and skips join-seal ghost walls.
+Default Pages boot embeds `src/design/default-v4.json` (no manual paste). Solids default to `space: "local"` (world = room origin + xy). `space: "world"` is allowed for cross-room pieces. `R2_doorframe` is a short catch stub at the right edge of `gate_R2_to_R4` (local `(320, 264, 24, 64)` → world `(1600, 264)`), not a full-height wall. A stored or imported **full-height** `R2_doorframe` (the old world `(1496, 16, 24, 312)`) is migrated/stripped on load (`layoutRevision` 5); the engine also refuses to spawn any R2 solid with `h>=200` in x `[1480, 1620]`. `gapGateId` cuts a hole only when that gate has a `world` rect (`gate_R2_to_R4`); the engine also X-splits any solid that 2D-overlaps a gate opening. `gate_R1_to_R3` has no world — R1→R3 openings are the pits between `R1_floorA/B/C` (`160–240`, `400–480`). R3 ceiling openings match those pits only; the middle under `R1_floorB` is sealed (`R3_ceilM`). R3 left/right/bottom stay sealed — corridor join-X skip applies only on the R0–R2 Y band, so R3's walls at x=640/1280 are not treated as doorway holes. Shared R0|R1|R2 corridor walls stay omitted; the engine still merges abutting corridor slabs and skips join-seal ghost walls.
 
 v1 / v2 仍可导入；手感像素值已是 640×360，不要再乘 2。旧能力 id `gravity` 会映射成 `gravityFall`。
 
@@ -146,14 +147,14 @@ Keys are **camelCase**. Feel mapping: `moveSpeed` walk speed, `airControl` airbo
 
 **Import (minimal, no file picker):**
 
-- Boot: if `localStorage['phymetroid.designConfig']` is valid JSON, it is applied.
+- Boot: if `localStorage['phymetroid.designConfig']` is valid JSON, it is applied, then migrated (`layoutRevision` 5) so an old tall `R2_doorframe` or pre-pit R3 ceiling dump cannot stick.
 - Console / bot: `window.__PHYMETROID_APPLY_DESIGN__(objOrJsonString)` or `applyDesignConfig(obj)` from `src/designConfig.js`.
 - `window.__PHYMETROID_GET_DESIGN__()` returns the current export payload.
 - `window.__PHYMETROID_GET_RUN__()` returns the live run snapshot (hp, abilities, items, phase, flags, visitedRooms, deaths, gravityDown).
 - `window.__PHYMETROID_DEBUG__` — `{ pos, warp, setDown, camRotation, toggleFeel, toggleMap }` for console / bot checks. `camRotation()` stays `0`.
 - `window.__PHYMETROID_TOGGLE_FULLSCREEN__()` toggles the Fullscreen API.
 
-导入先保持最小：启动读 localStorage；程序用上面的全局函数。完整文件选择器留给以后的策划 bot。
+导入先保持最小：启动读 localStorage（`layoutRevision` 5 会改掉旧的通高 R2_doorframe 和旧 R3 顶开口）；程序用上面的全局函数。完整文件选择器留给以后的策划 bot。
 
 Applying `{ sections: { player: { startingAbilities: ["gravity"] } } }` maps to `gravityFall`, unions it into the live run, and turns the gravity **vector** on (default down). `startingAbilities: ["gravityFall"]` is the v3 spelling. Changing `maxHp` clamps current HP.
 

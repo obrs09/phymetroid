@@ -99,13 +99,25 @@ function overlapsJoinX(x, w, joinX, pad = 1) {
   return x <= joinX + pad && x + w >= joinX - pad;
 }
 
+/** R0–R1–R2 playable mid-band. R3 (y=360) only touches the seam — keep its L/R walls. */
+const CORRIDOR_PLAYABLE = Object.freeze({ y0: 40, y1: 300 });
+
+export function occupiesCorridorPlayableBand(y, h, minOverlap = 40) {
+  const overlap = Math.min(y + h, CORRIDOR_PLAYABLE.y1) - Math.max(y, CORRIDOR_PLAYABLE.y0);
+  return overlap > minOverlap;
+}
+
 /**
  * Skip a full-height (or tall) wall that would seal a corridor join.
  * A large / full-height doorway is "place nothing" — lintels stay on the
  * room ceiling/floor slabs instead.
+ * Only walls that occupy the R0–R2 playable Y band are skipped. R3/R4 walls
+ * that merely share a join X (640 / 1280) must stay sealed.
  */
 function addWallUnlessCorridorJoin(addRect, joinXs, x, y, w, h, color, tag) {
-  const sealsJoin = joinXs.some((jx) => overlapsJoinX(x, w, jx) && h > px(40));
+  const sealsJoin =
+    occupiesCorridorPlayableBand(y, h) &&
+    joinXs.some((jx) => overlapsJoinX(x, w, jx) && h > px(40));
   if (sealsJoin) return;
   addRect(x, y, w, h, color, tag);
 }
@@ -197,6 +209,68 @@ export function splitRectAroundGate(rect, gap) {
  * opening stays walkable. Floor/ceiling slabs that only share the gate's X
  * (R2 floor at y=328) are left intact.
  */
+/** World-X band around gate_R2_to_R4 where a tall mid-R2 wall must not exist. */
+export const TALL_R2_NEAR_GATE = Object.freeze({ x0: 1480, x1: 1620, minH: 200 });
+
+/** Baked short catch stub (right edge of the ceiling gate). */
+export const SHORT_R2_DOORFRAME_WORLD = Object.freeze({ x: 1600, y: 264, w: 24, h: 64 });
+
+/** R1 floor pits in room-local X (also R3 ceiling openings). */
+export const R1_PIT_LOCAL_SPANS = Object.freeze([
+  Object.freeze({ x: 160, w: 80 }),
+  Object.freeze({ x: 400, w: 80 }),
+]);
+
+export function isTallR2SolidNearGate(rect) {
+  if (!rect) return false;
+  const h = Number(rect.h);
+  const x = Number(rect.x);
+  const w = Number(rect.w);
+  if (![h, x, w].every(Number.isFinite) || h < TALL_R2_NEAR_GATE.minH || w <= 0) return false;
+  return x < TALL_R2_NEAR_GATE.x1 && x + w > TALL_R2_NEAR_GATE.x0;
+}
+
+/** Gaps in [x0, x1] not covered by {x,w} slabs. */
+export function openSpansOnAxis(slabs, x0, x1) {
+  const items = (slabs || [])
+    .map((s) => ({ x: Number(s.x), w: Number(s.w) }))
+    .filter((s) => Number.isFinite(s.x) && Number.isFinite(s.w) && s.w > 0)
+    .sort((a, b) => a.x - b.x);
+  const opens = [];
+  let cursor = x0;
+  for (const s of items) {
+    const left = Math.max(s.x, x0);
+    const right = Math.min(s.x + s.w, x1);
+    if (right <= left) continue;
+    if (left > cursor) opens.push({ x: cursor, w: left - cursor });
+    cursor = Math.max(cursor, right);
+  }
+  if (cursor < x1) opens.push({ x: cursor, w: x1 - cursor });
+  return opens;
+}
+
+function ensureShortR2Doorframe(rects, rooms) {
+  const next = rects.filter((r) => !isTallR2SolidNearGate(r));
+  const hasStub = next.some(
+    (r) =>
+      r.tag === 'doorframe' &&
+      r.h < TALL_R2_NEAR_GATE.minH &&
+      r.x < TALL_R2_NEAR_GATE.x1 &&
+      r.x + r.w > TALL_R2_NEAR_GATE.x0
+  );
+  if (!hasStub && rooms.some((r) => r.id === 'R2')) {
+    next.push({
+      x: SHORT_R2_DOORFRAME_WORLD.x,
+      y: SHORT_R2_DOORFRAME_WORLD.y,
+      w: SHORT_R2_DOORFRAME_WORLD.w,
+      h: SHORT_R2_DOORFRAME_WORLD.h,
+      color: KIND_COLOR.doorframe,
+      tag: 'doorframe',
+    });
+  }
+  return next;
+}
+
 export function punchOverlappingGateRects(rects, gates = []) {
   const gaps = gates
     .map((g) => g?.world)
@@ -303,8 +377,10 @@ function appendHardcodedRooms(rooms, gates, helpers) {
     addRect(r3.x + r3.w - wallW, r3.y, wallW, r3.h, 0x3e2723, 'wall');
     addRect(r3.x + px(80), r3.y + px(80), px(48), platH, 0x6d4c41, 'plat');
     addRect(r3.x + px(180), r3.y + px(100), px(48), platH, 0x6d4c41, 'plat');
-    addRect(r3.x, r3.y, px(100), wallW, 0x3e2723, 'ceiling');
-    addRect(r3.x + px(220), r3.y, px(100), wallW, 0x3e2723, 'ceiling');
+    // Ceiling openings align to R1 pits only (160–240, 400–480). Seal the middle.
+    addRect(r3.x, r3.y, px(80), wallW, 0x3e2723, 'ceiling');
+    addRect(r3.x + px(120), r3.y, px(80), wallW, 0x3e2723, 'ceiling');
+    addRect(r3.x + px(240), r3.y, px(80), wallW, 0x3e2723, 'ceiling');
   }
 
   const r4 = roomById(rooms, 'R4');
@@ -351,7 +427,7 @@ export function listWorldSolidRects(rooms, gates = []) {
     addRect(r.x, r.y, r.w, r.h, r.color, r.tag);
   }
 
-  return punchOverlappingGateRects(rects, gates);
+  return ensureShortR2Doorframe(punchOverlappingGateRects(rects, gates), rooms);
 }
 
 /**

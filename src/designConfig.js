@@ -18,6 +18,8 @@
  * sections.abilities / runState — never mixed into feel numbers.
  *
  * Persistence: localStorage key `phymetroid.designConfig` (optional boot load).
+ * `layoutRevision` (currently 5) stamps baked solids. Boot migrates incompatible
+ * dumps (full-height R2_doorframe, pre-pit R3 ceilings) and rewrites storage.
  * Programmatic import: window.__PHYMETROID_APPLY_DESIGN__(objOrJson)
  * or applyDesignConfig(obj). The future 策划 bot can write this same JSON.
  *
@@ -31,8 +33,11 @@
 import { GAME_H, GAME_W, ROOMS, WORLD_SCALE } from './rooms.js';
 import { CARDINAL_AXES, isCardinal, normalizeDown } from './gravity.js';
 import DEFAULT_V4 from './design/defaultV4.js';
+import { isTallR2SolidNearGate, solidToWorldRect } from './worldSolids.js';
 
 export const SCHEMA_VERSION = 4;
+/** Bump when baked solids are incompatible with older localStorage dumps. */
+export const LAYOUT_REVISION = 5;
 export const GAME_ID = 'phymetroid';
 export const DESIGN_STORAGE_KEY = 'phymetroid.designConfig';
 
@@ -296,6 +301,9 @@ export const COMPAT_DEFAULTS = Object.freeze({
     'Pixel feel already WORLD_SCALE×2; do not re-scale. Feel debugger keys unchanged.',
     "Ability id rename: runtime ABILITY.GRAVITY / 'gravity' → 'gravityFall'. Map on import for old saves.",
     'gate_R1_to_R3 has no world rect; R1→R3 openings come from R1 floorA/B/C pits only.',
+    'layoutRevision 5: strip full-height R2_doorframe on load; keep the short catch stub under gate_R2_to_R4.',
+    'R3 ceiling openings align to R1 pits only (160–240, 400–480). Seal the middle under R1_floorB.',
+    'R3 L/R walls stay sealed even though they share join X 640/1280 — those X values are corridor joins only on the R0–R2 Y band.',
   ]),
 });
 
@@ -693,6 +701,95 @@ function sanitizeRooms(list) {
   return rooms.length ? rooms : fallback.map((r) => ({ ...r, solids: r.solids ? r.solids.map((s) => ({ ...s })) : undefined }));
 }
 
+function bakedR2Doorframe() {
+  const r2 = ROOM_DESIGN_DEFAULTS.find((r) => r.id === 'R2');
+  const door = r2?.solids?.find((s) => s.id === 'R2_doorframe');
+  return door
+    ? { ...door }
+    : {
+        id: 'R2_doorframe',
+        kind: 'doorframe',
+        space: 'local',
+        x: 320,
+        y: 264,
+        w: 24,
+        h: 64,
+        fixed: true,
+      };
+}
+
+function bakedR3Ceilings() {
+  const r3 = ROOM_DESIGN_DEFAULTS.find((r) => r.id === 'R3');
+  const ceils = (r3?.solids || []).filter((s) => s.kind === 'ceiling').map((s) => ({ ...s }));
+  if (ceils.length) return ceils;
+  return [
+    { id: 'R3_ceilL', kind: 'ceiling', space: 'local', x: 0, y: 0, w: 160, h: 16, fixed: true },
+    { id: 'R3_ceilM', kind: 'ceiling', space: 'local', x: 240, y: 0, w: 160, h: 16, fixed: true },
+    { id: 'R3_ceilR', kind: 'ceiling', space: 'local', x: 480, y: 0, w: 160, h: 16, fixed: true },
+  ];
+}
+
+function isLegacyR3CeilingLayout(room) {
+  const ceils = (room.solids || []).filter((s) => s.kind === 'ceiling' && s.space !== 'world');
+  if (ceils.length !== 2) return false;
+  const sorted = [...ceils].sort((a, b) => a.x - b.x);
+  return sorted[0].x === 0 && sorted[0].w === 200 && sorted[1].x === 440 && sorted[1].w === 200;
+}
+
+function migrateR2Doorframe(room) {
+  if (!Array.isArray(room.solids) || !room.solids.length) return { room, changed: false };
+  let changed = false;
+  let replacedDoor = false;
+  const solids = [];
+  for (const s of room.solids) {
+    const world = solidToWorldRect(room, s);
+    const isDoor = s.id === 'R2_doorframe' || s.kind === 'doorframe';
+    if (isTallR2SolidNearGate(world)) {
+      changed = true;
+      if (isDoor && !replacedDoor) {
+        solids.push(bakedR2Doorframe());
+        replacedDoor = true;
+      }
+      continue;
+    }
+    solids.push(s);
+  }
+  if (changed && !replacedDoor && !solids.some((s) => s.id === 'R2_doorframe' || s.kind === 'doorframe')) {
+    solids.push(bakedR2Doorframe());
+  }
+  return { room: changed ? { ...room, solids } : room, changed };
+}
+
+function migrateR3Ceilings(room) {
+  if (!Array.isArray(room.solids) || !room.solids.length) return { room, changed: false };
+  if (!isLegacyR3CeilingLayout(room)) return { room, changed: false };
+  const solids = room.solids.filter((s) => s.kind !== 'ceiling').concat(bakedR3Ceilings());
+  return { room: { ...room, solids }, changed: true };
+}
+
+/**
+ * Replace known-incompatible v4 solids (tall R2_doorframe, pre-pit R3 ceilings).
+ * Idempotent on the current bake.
+ */
+export function migrateLegacyRoomSolids(rooms) {
+  if (!Array.isArray(rooms)) return { rooms, changed: false };
+  let changed = false;
+  const next = rooms.map((room) => {
+    if (room.id === 'R2') {
+      const result = migrateR2Doorframe(room);
+      changed = changed || result.changed;
+      return result.room;
+    }
+    if (room.id === 'R3') {
+      const result = migrateR3Ceilings(room);
+      changed = changed || result.changed;
+      return result.room;
+    }
+    return room;
+  });
+  return { rooms: next, changed };
+}
+
 function sanitizeOnCollect(raw) {
   if (!raw || typeof raw !== 'object') return {};
   const next = {};
@@ -880,8 +977,11 @@ function applyImportedObject(obj) {
   if (Array.isArray(gates)) {
     state.sections.gates = sanitizeGates(gates);
   }
+  const migrated = migrateLegacyRoomSolids(state.sections.rooms);
+  state.sections.rooms = migrated.rooms;
   logDesignValidation(validateDesignGraph(state.sections));
   warnMissingGapGateIds(state.sections);
+  return { migrated: migrated.changed };
 }
 
 function loadFromStorage() {
@@ -898,7 +998,11 @@ function loadFromStorage() {
     if (!obj?.logicalW && !obj?.logicalH) {
       return;
     }
-    applyImportedObject(obj);
+    const result = applyImportedObject(obj);
+    // Rewrite stale dumps (tall R2_doorframe / old R3 ceilings / missing layoutRevision).
+    if (result.migrated || Number(obj.layoutRevision) !== LAYOUT_REVISION) {
+      persist();
+    }
   } catch {
     // corrupt payload — keep defaults
   }
@@ -1090,6 +1194,7 @@ export function buildExportPayload(date = new Date()) {
   const progress = getProgressDesign();
   return {
     schemaVersion: SCHEMA_VERSION,
+    layoutRevision: LAYOUT_REVISION,
     game: GAME_ID,
     exportedAt: date.toISOString(),
     logicalW: GAME_W,
