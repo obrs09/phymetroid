@@ -62,6 +62,8 @@ import {
   getRunState,
   hasAbility,
   resetRun,
+  revokeAbility,
+  toggleAbility,
   trySetGravityDown,
   unlockAbility,
 } from '../src/runState.js';
@@ -565,6 +567,10 @@ section('ability grants stack I then II', () => {
   unlockAbility('gravityField');
   assert.equal(getAbilityGrants().gravityDirections, 'arbitrary');
   assert.equal(getAbilityGrants().toggleAnytime, true);
+  revokeAbility('reactionJump');
+  assert.equal(getAbilityGrants().canJump, false, 'revoke reactionJump removes jump');
+  toggleAbility('reactionJump');
+  assert.equal(getAbilityGrants().canJump, true);
   resetRun();
 });
 

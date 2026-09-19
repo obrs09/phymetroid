@@ -17,6 +17,8 @@ Phaser 3 + Vite 独立游戏原型：漂浮开场 → **gravityFall**（落体�
 | F | Toggle browser Fullscreen API on the game container (Esc exits). F11 is the browser's own chrome fullscreen and also relayouts. / 游戏容器全屏（Esc 退出）。F11 仍是浏览器全屏，同样会重算缩放。 |
 | 9 / 0 | Debug: take 1 damage / heal 1 HP (death stub respawns HP; abilities stay). / 调试：受伤 / 回血（倒下后回满 HP，能力保留） |
 | F1 or `` ` `` (backtick) | Toggle feel debugger (pauses physics). If F1 opens browser help, use backtick. / 开关手感调试（暂停物理）。若 F1 被浏览器抢走，用反引号。 |
+| 1–4 (debugger open) | Toggle grant/revoke `gravityFall` / `surfaceWalk` / `reactionJump` / `gravityField`. / 调试：授予或撤销能力 |
+| Shift+1–7 (debugger open) | Warp to R0–R6 (safe spawn, camera snap). / 调试：传送到房间 |
 | ↑ ↓ (debugger open) | Select feel field / 选择手感参数 |
 | `[` `]` or `-` `=` or ← → | Adjust selected field; hold **Shift** for a larger step / 调整数值，Shift 大步进 |
 | Click row / `+` `-` | Select field or nudge with the mouse / 鼠标选中或加减 |
@@ -169,7 +171,7 @@ Keys are **camelCase**. Feel mapping: `moveSpeed` walk speed, `airControl` airbo
 - Console / bot: `window.__PHYMETROID_APPLY_DESIGN__(objOrJsonString)` or `applyDesignConfig(obj)` from `src/designConfig.js`.
 - `window.__PHYMETROID_GET_DESIGN__()` returns the current export payload.
 - `window.__PHYMETROID_GET_RUN__()` returns the live run snapshot (hp, abilities, items, phase, flags, visitedRooms, deaths, gravityDown).
-- `window.__PHYMETROID_DEBUG__` — `{ pos, warp, setDown, camRotation, toggleFeel, toggleMap }` for console / bot checks. `setDown(axis, supported=true)` accepts cardinals or degrees (e.g. `45`). `camRotation()` stays `0`.
+- `window.__PHYMETROID_DEBUG__` — `{ pos, warp, warpRoom, setDown, camRotation, toggleFeel, toggleMap, toggleAbility }` for console / bot checks. `setDown(axis, supported=true)` accepts cardinals or degrees (e.g. `45`). `camRotation()` stays `0`. Keyboard cheats (1–4 / Shift+1–7) only fire while the F1 panel is open.
 - `window.__PHYMETROID_TOGGLE_FULLSCREEN__()` toggles the Fullscreen API.
 
 导入先保持最小：启动读 localStorage（`layoutRevision` 6 会补上 R5/R6、打开 R4 右门，并改掉旧的通高 R2_doorframe / 旧 R3 顶开口）；程序用上面的全局函数。完整文件选择器留给以后的策划 bot。

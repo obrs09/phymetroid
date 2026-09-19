@@ -423,6 +423,51 @@ check('rotateCamera false in export', feelDump.rotateCamera === false);
 check('export uses gravityFall not gravity', feelDump.gravityFall && !feelDump.gravityId);
 await page.screenshot({ path: `${OUT}/v3_09_feel_debug.png` });
 
+// F1 debug cheats (1–4 / Shift+1–7). API is always on DEBUG; keys only while F1 open.
+await page.evaluate(() => {
+  for (const id of ['gravityFall', 'surfaceWalk', 'reactionJump', 'gravityField']) {
+    if (window.__PHYMETROID_GET_RUN__().abilities.includes(id)) {
+      window.__PHYMETROID_DEBUG__.toggleAbility(id);
+    }
+  }
+});
+const cheatGrant = await page.evaluate(() => window.__PHYMETROID_DEBUG__.toggleAbility('gravityFall'));
+check('F1 grant gravityFall', cheatGrant.has === true, JSON.stringify(cheatGrant.abilities));
+const cheatRevoke = await page.evaluate(() => window.__PHYMETROID_DEBUG__.toggleAbility('gravityFall'));
+check('F1 revoke gravityFall', cheatRevoke.has === false, JSON.stringify(cheatRevoke.abilities));
+const warped = await page.evaluate(() => window.__PHYMETROID_DEBUG__.warpRoom('R5'));
+check(
+  'warpRoom R5 safe spawn',
+  warped?.room === 'R5' && warped.x === 2100 && warped.y === -60,
+  JSON.stringify(warped)
+);
+const warpPos = await page.evaluate(() => window.__PHYMETROID_DEBUG__.pos());
+check('camera snapped to R5 after warp', warpPos.room === 'R5', JSON.stringify(warpPos));
+
+await page.evaluate(() => window.__PHYMETROID_DEBUG__.toggleFeel());
+await new Promise((r) => setTimeout(r, 200));
+const beforeKey = await page.evaluate(() => window.__PHYMETROID_GET_RUN__().abilities.slice());
+await page.keyboard.press('Digit4');
+await new Promise((r) => setTimeout(r, 150));
+const afterClosedKey = await page.evaluate(() => window.__PHYMETROID_GET_RUN__().abilities.slice());
+check(
+  'Digit4 does not toggle field while F1 closed',
+  JSON.stringify(afterClosedKey) === JSON.stringify(beforeKey) && !afterClosedKey.includes('gravityField'),
+  JSON.stringify({ beforeKey, afterClosedKey })
+);
+
+await page.evaluate(() => window.__PHYMETROID_DEBUG__.toggleFeel());
+await new Promise((r) => setTimeout(r, 200));
+await page.keyboard.press('Digit4');
+await new Promise((r) => setTimeout(r, 150));
+const afterOpenKey = await page.evaluate(() => window.__PHYMETROID_GET_RUN__().abilities.slice());
+check(
+  'Digit4 grants gravityField while F1 open',
+  afterOpenKey.includes('gravityField'),
+  JSON.stringify(afterOpenKey)
+);
+await page.evaluate(() => window.__PHYMETROID_DEBUG__.toggleFeel());
+
 // v2 import mapping
 const v2 = await page.evaluate(() => {
   window.__PHYMETROID_APPLY_DESIGN__({
