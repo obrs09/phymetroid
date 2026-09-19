@@ -101,6 +101,9 @@ if (!run.abilities.includes('gravityFall')) {
 check('picked gravityFall (not gravity)', run.abilities.includes('gravityFall') && !run.abilities.includes('gravity'), JSON.stringify(run.abilities));
 check('phase exploration', run.phase === 'exploration', run.phase);
 check('item gravityOrb', run.items.gravityOrb === 1, JSON.stringify(run.items));
+const flashPickup = await page.evaluate(() => window.__PHYMETROID_DEBUG__.flash());
+check('flash down on gravityFall pickup', flashPickup?.axis === 'down' && flashPickup.flashed, JSON.stringify(flashPickup));
+await page.screenshot({ path: `${OUT}/v3_02a_gravity_flash_down.png` });
 
 await new Promise((r) => setTimeout(r, 600));
 await page.screenshot({ path: `${OUT}/v3_02_gravity_fall.png` });
@@ -136,6 +139,9 @@ check(
 // Gravity right from floor (debug setDown — same path as L when grounded)
 const setRight = await page.evaluate(() => window.__PHYMETROID_DEBUG__.setDown('right'));
 check('setDown(right) from floor', setRight.down === 'right', JSON.stringify(setRight));
+const flashRight = await page.evaluate(() => window.__PHYMETROID_DEBUG__.flash());
+check('gravity flash after setDown(right)', flashRight?.axis === 'right' && flashRight.flashed, JSON.stringify(flashRight));
+await page.screenshot({ path: `${OUT}/v3_03a_gravity_flash_right.png` });
 await new Promise((r) => setTimeout(r, 900));
 const rightFall = await page.evaluate(() => ({
   run: window.__PHYMETROID_GET_RUN__(),
@@ -146,6 +152,45 @@ check('gravity vector is right', rightFall.run.gravityDown === 'right', rightFal
 check('fell toward R1/R2 (x increased)', rightFall.pos.x > 280, JSON.stringify(rightFall.pos));
 check('camera still 0 while falling sideways', rightFall.cam === 0, String(rightFall.cam));
 await page.screenshot({ path: `${OUT}/v3_03_gravity_right.png` });
+
+// R0 floor → R1 join must not ghost-block I-mode
+await page.evaluate(() => {
+  window.__PHYMETROID_DEBUG__.warp(560, 312);
+  window.__PHYMETROID_DEBUG__.setDown('down');
+});
+await new Promise((r) => setTimeout(r, 400));
+await page.evaluate(() => window.__PHYMETROID_DEBUG__.setDown('right'));
+await new Promise((r) => setTimeout(r, 1000));
+const crossedR0R1 = await page.evaluate(() => window.__PHYMETROID_DEBUG__.pos());
+check(
+  'I-mode crosses R0|R1 join (x>640)',
+  crossedR0R1.x > 640 && (crossedR0R1.room === 'R1' || crossedR0R1.room === 'R2'),
+  JSON.stringify(crossedR0R1)
+);
+
+// R1 floor → R2 join (the reported wall at x≈1280)
+await page.evaluate(() => {
+  window.__PHYMETROID_DEBUG__.warp(1200, 312);
+  window.__PHYMETROID_DEBUG__.setDown('down');
+});
+await new Promise((r) => setTimeout(r, 400));
+await page.evaluate(() => window.__PHYMETROID_DEBUG__.setDown('right'));
+await new Promise((r) => setTimeout(r, 1000));
+const crossedR1R2 = await page.evaluate(() => ({
+  pos: window.__PHYMETROID_DEBUG__.pos(),
+  solids: window.__PHYMETROID_DEBUG__.solidsNear(1280, 4),
+}));
+check(
+  'I-mode crosses R1|R2 join (x>1280)',
+  crossedR1R2.pos.x > 1280 && crossedR1R2.pos.room === 'R2',
+  JSON.stringify(crossedR1R2.pos)
+);
+check(
+  'no tall solid seals x=1280',
+  !crossedR1R2.solids.some((s) => s.h > 80 && s.y < 40 && s.y + s.h > 300),
+  JSON.stringify(crossedR1R2.solids)
+);
+await page.screenshot({ path: `${OUT}/v3_03b_crossed_r1_r2.png` });
 
 // Doorframe catch: stand near R2 right, fall left into the frame
 await page.evaluate(() => {
@@ -214,6 +259,12 @@ await page.screenshot({ path: `${OUT}/v3_07_walk_no_jump.png` });
 // Map overlay
 await page.evaluate(() => window.__PHYMETROID_DEBUG__.toggleMap());
 await new Promise((r) => setTimeout(r, 300));
+const mapInfo = await page.evaluate(() => window.__PHYMETROID_DEBUG__.mapContents());
+check('map R0 shows gravity orb', mapInfo?.R0?.pickups?.some((p) => p.id === 'gravityOrb'));
+check('map R4 shows walk orb once visited', mapInfo?.R4?.pickups?.some((p) => p.id === 'surfaceWalkOrb'));
+check('map R2 shows gate to R4', mapInfo?.R2?.gates?.some((g) => g.dest === 'R4'));
+check('map R3 stays spoiler-free if unvisited', !mapInfo?.R3?.visited && (mapInfo?.R3?.pickups?.length ?? 0) === 0);
+check('map keeps R4 role hint', mapInfo?.R4?.role === 'fric');
 await page.screenshot({ path: `${OUT}/v3_08_map_r4.png` });
 await page.evaluate(() => window.__PHYMETROID_DEBUG__.toggleMap());
 
