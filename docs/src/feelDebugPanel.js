@@ -1,5 +1,6 @@
 import Phaser from './phaser-shim.js';
-import { GAME_W, GAME_H, UI_FONT_FAMILY, UI_FONT_LG, UI_FONT_MD, UI_FONT_SM, px } from './rooms.js';
+import { GAME_W, GAME_H, UI_FONT_LG, UI_FONT_MD, UI_FONT_SM, px } from './rooms.js';
+import { addHudText } from './hudText.js';
 import {
   FEEL_FIELDS,
   downloadDesignJson,
@@ -33,22 +34,16 @@ export class FeelDebugPanel {
     panel.setStrokeStyle(2, 0xb2ff59, 1);
     this.root.add(panel);
 
-    this.titleText = scene.add
-      .text(px(8), px(6), 'FEEL DEBUG  (F1 / `)', {
-        fontFamily: UI_FONT_FAMILY,
-        fontSize: UI_FONT_LG,
-        color: '#b2ff59',
-        resolution: 1,
-      });
+    this.titleText = addHudText(scene, px(8), px(6), 'FEEL DEBUG  (F1 / `)', {
+      fontSize: UI_FONT_LG,
+      color: '#b2ff59',
+    });
     this.root.add(this.titleText);
 
-    this.statusText = scene.add
-      .text(px(8), px(16), '', {
-        fontFamily: UI_FONT_FAMILY,
-        fontSize: UI_FONT_SM,
-        color: '#c5e1a5',
-        resolution: 1,
-      });
+    this.statusText = addHudText(scene, px(8), px(16), '', {
+      fontSize: UI_FONT_SM,
+      color: '#c5e1a5',
+    });
     this.root.add(this.statusText);
 
     this.highlight = scene.add.rectangle(GAME_W / 2, 0, GAME_W - px(16), ROW_H, 0x33691e, 0.85);
@@ -56,62 +51,43 @@ export class FeelDebugPanel {
 
     this.rows = FEEL_FIELDS.map((field, i) => {
       const y = FIELD_TOP + i * ROW_H;
-      const label = scene.add
-        .text(px(10), y, '', {
-          fontFamily: UI_FONT_FAMILY,
-          fontSize: UI_FONT_MD,
-          color: '#dcedc8',
-          resolution: 1,
-        })
-        .setInteractive({ useHandCursor: true });
+      const label = addHudText(scene, px(10), y, '', {
+        fontSize: UI_FONT_MD,
+        color: '#dcedc8',
+      }).setInteractive({ useHandCursor: true });
       label.on('pointerdown', () => {
         this.selectedIndex = i;
         this.refreshFields();
       });
       this.root.add(label);
 
-      const minus = scene.add
-        .text(px(268), y, '-', {
-          fontFamily: UI_FONT_FAMILY,
-          fontSize: UI_FONT_MD,
-          color: '#ffcc80',
-          resolution: 1,
-        })
-        .setInteractive({ useHandCursor: true });
+      const minus = addHudText(scene, px(268), y, '-', {
+        fontSize: UI_FONT_MD,
+        color: '#ffcc80',
+      }).setInteractive({ useHandCursor: true });
       minus.on('pointerdown', (pointer) => this.adjust(-1, this.shiftDown(pointer?.event)));
       this.root.add(minus);
 
-      const plus = scene.add
-        .text(px(284), y, '+', {
-          fontFamily: UI_FONT_FAMILY,
-          fontSize: UI_FONT_MD,
-          color: '#ffcc80',
-          resolution: 1,
-        })
-        .setInteractive({ useHandCursor: true });
+      const plus = addHudText(scene, px(284), y, '+', {
+        fontSize: UI_FONT_MD,
+        color: '#ffcc80',
+      }).setInteractive({ useHandCursor: true });
       plus.on('pointerdown', (pointer) => this.adjust(1, this.shiftDown(pointer?.event)));
       this.root.add(plus);
 
       return { field, label, minus, plus };
     });
 
-    this.helpText = scene.add
-      .text(px(8), px(132), '', {
-        fontFamily: UI_FONT_FAMILY,
-        fontSize: UI_FONT_SM,
-        color: '#78909c',
-        resolution: 1,
-      });
+    this.helpText = addHudText(scene, px(8), px(132), '', {
+      fontSize: UI_FONT_SM,
+      color: '#78909c',
+    });
     this.root.add(this.helpText);
 
-    this.toastText = scene.add
-      .text(GAME_W / 2, px(170), '', {
-        fontFamily: UI_FONT_FAMILY,
-        fontSize: UI_FONT_SM,
-        color: '#ffe082',
-        resolution: 1,
-      })
-      .setOrigin(0.5, 1);
+    this.toastText = addHudText(scene, GAME_W / 2, px(170), '', {
+      fontSize: UI_FONT_SM,
+      color: '#ffe082',
+    }).setOrigin(0.5, 1);
     this.root.add(this.toastText);
 
     this.shiftKey = scene.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SHIFT);

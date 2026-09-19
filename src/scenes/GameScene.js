@@ -1,8 +1,9 @@
 import Phaser from 'phaser';
-import { ROOMS, GAME_W, GAME_H, getWorldBounds, findRoomAt, UI_FONT_FAMILY, UI_FONT_LG, UI_FONT_MD, UI_FONT_SM, px } from '../rooms.js';
+import { ROOMS, GAME_W, GAME_H, getWorldBounds, findRoomAt, UI_FONT_LG, UI_FONT_MD, UI_FONT_SM, px } from '../rooms.js';
 import { applyPlayerFeelLimits, createPlayer } from '../player.js';
 import { getFeel, subscribeDesign } from '../designConfig.js';
 import { FeelDebugPanel } from '../feelDebugPanel.js';
+import { addHudText, refreshHudTextResolution } from '../hudText.js';
 
 /**
  * First-room Metroidvania prototype:
@@ -50,25 +51,25 @@ export class GameScene extends Phaser.Scene {
       backtick: Phaser.Input.Keyboard.KeyCodes.BACKTICK,
     });
 
-    this.statusText = this.add
-      .text(GAME_W / 2, px(28), '', {
-        fontFamily: UI_FONT_FAMILY,
-        fontSize: UI_FONT_LG,
-        color: '#ffe082',
-        resolution: 1,
-      })
+    this.statusText = addHudText(this, GAME_W / 2, px(28), '', {
+      fontSize: UI_FONT_LG,
+      color: '#ffe082',
+    })
       .setOrigin(0.5, 0)
       .setScrollFactor(0)
       .setDepth(100)
       .setVisible(false);
 
-    this.hintText = this.add
-      .text(GAME_W / 2, GAME_H - px(12), 'NUDGE TO YELLOW: GRAVITY  |  M MAP  |  F1 FEEL', {
-        fontFamily: UI_FONT_FAMILY,
+    this.hintText = addHudText(
+      this,
+      GAME_W / 2,
+      GAME_H - px(12),
+      'NUDGE TO YELLOW: GRAVITY  |  M MAP  |  F1 FEEL',
+      {
         fontSize: UI_FONT_MD,
         color: '#90a4ae',
-        resolution: 1,
-      })
+      }
+    )
       .setOrigin(0.5, 1)
       .setScrollFactor(0)
       .setDepth(100);
@@ -89,6 +90,8 @@ export class GameScene extends Phaser.Scene {
     });
     this.input.keyboard.on('keydown-BACKTICK', () => this.toggleDebug());
     this.input.keyboard.on('keydown-M', () => this.toggleMap());
+
+    refreshHudTextResolution(this.scale.zoom);
 
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this._unsubDesign?.();
@@ -112,14 +115,10 @@ export class GameScene extends Phaser.Scene {
       g.fillRect(room.x, room.y, room.w, room.h);
       g.lineStyle(2, 0x3d5a80, 0.6);
       g.strokeRect(room.x + 1, room.y + 1, room.w - 2, room.h - 2);
-      this.add
-        .text(room.x + px(6), room.y + px(6), room.id, {
-          fontFamily: UI_FONT_FAMILY,
-          fontSize: UI_FONT_MD,
-          color: '#546e7a',
-          resolution: 1,
-        })
-        .setDepth(1);
+      addHudText(this, room.x + px(6), room.y + px(6), room.id, {
+        fontSize: UI_FONT_MD,
+        color: '#546e7a',
+      }).setDepth(1);
       g.setDepth(0);
     });
   }
@@ -131,14 +130,10 @@ export class GameScene extends Phaser.Scene {
     panel.setStrokeStyle(2, 0x90caf9, 1);
     this.mapRoot.add(panel);
 
-    const title = this.add
-      .text(GAME_W / 2, px(18), 'MAP  (M)', {
-        fontFamily: UI_FONT_FAMILY,
-        fontSize: UI_FONT_LG,
-        color: '#e3f2fd',
-        resolution: 1,
-      })
-      .setOrigin(0.5, 0);
+    const title = addHudText(this, GAME_W / 2, px(18), 'MAP  (M)', {
+      fontSize: UI_FONT_LG,
+      color: '#e3f2fd',
+    }).setOrigin(0.5, 0);
     this.mapRoot.add(title);
 
     let minX = Infinity;
@@ -168,14 +163,10 @@ export class GameScene extends Phaser.Scene {
       const rect = this.add.rectangle(rx + rw / 2, ry + rh / 2, rw, rh, 0x263238, 1);
       rect.setStrokeStyle(2, 0x546e7a, 1);
       this.mapRoot.add(rect);
-      const label = this.add
-        .text(rx + rw / 2, ry + rh / 2, r.id, {
-          fontFamily: UI_FONT_FAMILY,
-          fontSize: UI_FONT_MD,
-          color: '#90a4ae',
-          resolution: 1,
-        })
-        .setOrigin(0.5);
+      const label = addHudText(this, rx + rw / 2, ry + rh / 2, r.id, {
+        fontSize: UI_FONT_MD,
+        color: '#90a4ae',
+      }).setOrigin(0.5);
       this.mapRoot.add(label);
       this.mapRoomGfx[r.id] = { rect, label };
     }
@@ -184,14 +175,16 @@ export class GameScene extends Phaser.Scene {
     this.mapRoot.add(this.mapPlayerDot);
     this.mapLayout = { ox, oy, minX, minY, scale };
 
-    const legend = this.add
-      .text(GAME_W / 2, GAME_H - px(18), 'dark=unseen  blue=visited  bright=here  dot=you', {
-        fontFamily: UI_FONT_FAMILY,
+    const legend = addHudText(
+      this,
+      GAME_W / 2,
+      GAME_H - px(18),
+      'dark=unseen  blue=visited  bright=here  dot=you',
+      {
         fontSize: UI_FONT_SM,
         color: '#78909c',
-        resolution: 1,
-      })
-      .setOrigin(0.5, 1);
+      }
+    ).setOrigin(0.5, 1);
     this.mapRoot.add(legend);
   }
 

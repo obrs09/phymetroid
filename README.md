@@ -128,9 +128,9 @@ Keys are **camelCase**. Mapping: `moveSpeed` walk speed, `airControl` airborne f
 
 ## Display / 显示
 
-Logical size **640×360** (exact 2× of 320×180, same 16:9), scaled with **integer zoom** (`Scale.NONE` + `computeIntegerZoom`) so pixel art stays sharp. HUD / debugger / map labels use Courier New monospace at 14–20px (2× the old 7–10px) so text is rasterized with more pixels before zoom — less muddy than 8px nearest-neighbor stretched from 320×180. Letterboxing appears when the window is not an exact multiple.
+Logical size **640×360** (exact 2× of 320×180, same 16:9), scaled with **integer zoom** (`Scale.NONE` + `computeIntegerZoom`) so pixel art stays sharp. HUD / debugger / map labels use Courier New monospace at 14–20px (2× the old 7–10px), rasterized at `resolution` ≥ 2 with a linear texture filter (`src/hudText.js`) so glyph AA is not nearest-neighbor magnified by `pixelArt`. Sprites stay NEAREST. Letterboxing appears when the window is not an exact multiple.
 
-逻辑分辨率 **640×360**（320×180 的正好 2 倍），使用**整数倍缩放**，避免 FIT 非整数放大导致发糊。UI 字号同步加大，先以更高逻辑像素绘制再整数放大，减少糊字。
+逻辑分辨率 **640×360**（320×180 的正好 2 倍），使用**整数倍缩放**，避免 FIT 非整数放大导致发糊。UI 用更大等宽字 + 单独线性过滤，减少糊字；像素精灵仍是最近邻。
 
 ## Docs sync / Pages 源同步
 
@@ -159,5 +159,6 @@ src/rooms.js
 src/player.js
 src/designConfig.js    # live feel + export/import
 src/feelDebugPanel.js  # F1 debugger UI
+src/hudText.js         # sharper HUD / debugger / map labels
 docs/                  # GitHub Pages root (CDN + docs/src)
 ```
