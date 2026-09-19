@@ -117,11 +117,9 @@ export class FeelDebugPanel {
       .setOrigin(0.5, 1);
     this.root.add(this.toastText);
 
+    // Reuse scene cursors — a second Key object on the same codes makes JustDown flaky.
+    this.cursors = scene.cursors;
     this.keys = scene.input.keyboard.addKeys({
-      up: Phaser.Input.Keyboard.KeyCodes.UP,
-      down: Phaser.Input.Keyboard.KeyCodes.DOWN,
-      left: Phaser.Input.Keyboard.KeyCodes.LEFT,
-      right: Phaser.Input.Keyboard.KeyCodes.RIGHT,
       openBracket: Phaser.Input.Keyboard.KeyCodes.OPEN_BRACKET,
       closeBracket: Phaser.Input.Keyboard.KeyCodes.CLOSED_BRACKET,
       minus: Phaser.Input.Keyboard.KeyCodes.MINUS,
@@ -234,12 +232,14 @@ export class FeelDebugPanel {
 
   decHeld() {
     const k = this.keys;
-    return k.left.isDown || k.openBracket.isDown || k.minus.isDown || k.numSub.isDown;
+    const c = this.cursors;
+    return c.left.isDown || k.openBracket.isDown || k.minus.isDown || k.numSub.isDown;
   }
 
   incHeld() {
     const k = this.keys;
-    return k.right.isDown || k.closeBracket.isDown || k.equals.isDown || k.numAdd.isDown;
+    const c = this.cursors;
+    return c.right.isDown || k.closeBracket.isDown || k.equals.isDown || k.numAdd.isDown;
   }
 
   /**
@@ -248,8 +248,8 @@ export class FeelDebugPanel {
   update(time) {
     if (!this.visible) return;
 
-    if (Phaser.Input.Keyboard.JustDown(this.keys.up)) this.moveSelect(-1);
-    if (Phaser.Input.Keyboard.JustDown(this.keys.down)) this.moveSelect(1);
+    if (Phaser.Input.Keyboard.JustDown(this.cursors.up)) this.moveSelect(-1);
+    if (Phaser.Input.Keyboard.JustDown(this.cursors.down)) this.moveSelect(1);
 
     let dir = 0;
     if (this.decHeld() && !this.incHeld()) dir = -1;

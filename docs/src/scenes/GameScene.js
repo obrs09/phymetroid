@@ -74,6 +74,7 @@ export class GameScene extends Phaser.Scene {
       .setDepth(100);
 
     this.buildMapOverlay();
+    // Cursors must exist before the panel reuses them for ↑↓←→.
     this.debugPanel = new FeelDebugPanel(this);
     this._unsubDesign = subscribeDesign(() => this.applyLiveFeel());
     this.applyLiveFeel();
@@ -379,15 +380,16 @@ export class GameScene extends Phaser.Scene {
     const now = time;
     const feel = getFeel();
 
-    const consumeJumpEdges = () => {
-      Phaser.Input.Keyboard.JustDown(this.cursors.up);
+    const consumeJumpEdges = (includeUp = true) => {
+      // Do not consume Up while the debugger uses it to select fields.
+      if (includeUp) Phaser.Input.Keyboard.JustDown(this.cursors.up);
       Phaser.Input.Keyboard.JustDown(this.keys.w);
       Phaser.Input.Keyboard.JustDown(this.keys.space);
     };
 
     if (this.debugVisible) {
-      consumeJumpEdges();
       this.debugPanel.update(time);
+      consumeJumpEdges(false);
       this.debugPanel.refreshStatus({
         room: this.currentRoomId,
         gravityOn: this.gravityOn,
