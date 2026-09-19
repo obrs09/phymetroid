@@ -180,6 +180,7 @@ export class FeelDebugPanel {
         this.scene.debugToggleAbility?.(id);
         this.refreshCheat();
         this.showToast(`${hasAbility(id) ? 'Grant' : 'Revoke'} ${id}`);
+        return;
       }
     }
   }
@@ -220,6 +221,7 @@ export class FeelDebugPanel {
 
   onCheatClick(pointer) {
     const x = pointer?.worldX ?? pointer?.x ?? 0;
+    // Left half of the cheat line toggles abilities by x band; right half cycles rooms.
     if (x < 280) {
       const slot = Math.min(3, Math.max(0, Math.floor((x - 50) / 50)));
       const id = ABILITY_UNLOCK_ORDER[slot];

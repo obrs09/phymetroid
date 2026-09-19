@@ -79,7 +79,7 @@ check('schemaVersion 4', boot.schema === 4, String(boot.schema));
 const solidCounts = Object.fromEntries(boot.rooms.map((r) => [r.id, r.solids]));
 check(
   'v4 solid counts',
-  JSON.stringify(solidCounts) === JSON.stringify({ R0: 5, R1: 6, R2: 7, R3: 8, R4: 7, R5: 6, R6: 6 }),
+  JSON.stringify(solidCounts) === JSON.stringify({ R0: 5, R1: 6, R2: 6, R3: 8, R4: 7, R5: 4, R6: 4 }),
   JSON.stringify(solidCounts)
 );
 check('layoutRevision 6', boot.layoutRevision === 6, String(boot.layoutRevision));
@@ -87,8 +87,8 @@ check('baked design validates', Array.isArray(boot.validation) && boot.validatio
 check('logical 640x360', boot.logical.w === 640 && boot.logical.h === 360, JSON.stringify(boot.logical));
 check('R3 under R1', boot.rooms.find((r) => r.id === 'R3')?.y === 360);
 check('R4 above R2', boot.rooms.find((r) => r.id === 'R4')?.x === 1280 && boot.rooms.find((r) => r.id === 'R4')?.y === -360);
-check('R5 east of R4', boot.rooms.find((r) => r.id === 'R5')?.x === 1920 && boot.rooms.find((r) => r.id === 'R5')?.y === -360);
-check('R6 east of R5', boot.rooms.find((r) => r.id === 'R6')?.x === 2560 && boot.rooms.find((r) => r.id === 'R6')?.y === -360);
+check('R5 east of R2 on Y=0', boot.rooms.find((r) => r.id === 'R5')?.x === 1920 && boot.rooms.find((r) => r.id === 'R5')?.y === 0);
+check('R6 east of R5 on Y=0', boot.rooms.find((r) => r.id === 'R6')?.x === 2560 && boot.rooms.find((r) => r.id === 'R6')?.y === 0);
 check('surfaceWalkOrb coords', boot.orb?.x === 1320 && boot.orb?.y === -320, JSON.stringify(boot.orb));
 check('camera rotation 0 at boot', boot.cam === 0, String(boot.cam));
 check('start no abilities', boot.run.abilities.length === 0);
@@ -298,7 +298,7 @@ await page.screenshot({ path: `${OUT}/v3_07_walk_no_jump.png` });
 // R5 reactionJump orb (requires surfaceWalk — already unlocked)
 await page.evaluate(() => {
   window.__PHYMETROID_DEBUG__.setDown('down');
-  window.__PHYMETROID_DEBUG__.warp(2000, -80);
+  window.__PHYMETROID_DEBUG__.warp(2000, 220);
 });
 await new Promise((r) => setTimeout(r, 500));
 run = await page.evaluate(() => window.__PHYMETROID_GET_RUN__());
@@ -309,7 +309,7 @@ await page.screenshot({ path: `${OUT}/v4_08_reaction_jump_orb.png` });
 
 await page.evaluate(() => {
   window.__PHYMETROID_DEBUG__.setDown('down');
-  window.__PHYMETROID_DEBUG__.warp(2000, -48);
+  window.__PHYMETROID_DEBUG__.warp(2000, 300);
 });
 await new Promise((r) => setTimeout(r, 500));
 const jump0 = await page.evaluate(() => window.__PHYMETROID_DEBUG__.pos());
@@ -325,7 +325,7 @@ check(
 await page.screenshot({ path: `${OUT}/v4_09_jump.png` });
 
 // R6 gravityField orb
-await page.evaluate(() => window.__PHYMETROID_DEBUG__.warp(2680, -160));
+await page.evaluate(() => window.__PHYMETROID_DEBUG__.warp(2880, 120));
 await new Promise((r) => setTimeout(r, 500));
 run = await page.evaluate(() => window.__PHYMETROID_GET_RUN__());
 check('picked gravityField', run.abilities.includes('gravityField'), JSON.stringify(run.abilities));
@@ -438,12 +438,13 @@ check('F1 revoke gravityFall', cheatRevoke.has === false, JSON.stringify(cheatRe
 const warped = await page.evaluate(() => window.__PHYMETROID_DEBUG__.warpRoom('R5'));
 check(
   'warpRoom R5 safe spawn',
-  warped?.room === 'R5' && warped.x === 2100 && warped.y === -60,
+  warped?.room === 'R5' && warped.x === 2000 && warped.y === 300,
   JSON.stringify(warped)
 );
 const warpPos = await page.evaluate(() => window.__PHYMETROID_DEBUG__.pos());
 check('camera snapped to R5 after warp', warpPos.room === 'R5', JSON.stringify(warpPos));
 
+// Keyboard 1–4 must not fire when the debugger is closed.
 await page.evaluate(() => window.__PHYMETROID_DEBUG__.toggleFeel());
 await new Promise((r) => setTimeout(r, 200));
 const beforeKey = await page.evaluate(() => window.__PHYMETROID_GET_RUN__().abilities.slice());

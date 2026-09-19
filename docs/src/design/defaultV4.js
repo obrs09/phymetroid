@@ -12,8 +12,8 @@ export default {
   "worldScale": 2,
   "status": "final",
   "intent": {
-    "zh": "只转重力矢量、不转镜头。I 落体 → II 摩擦（R4）→ II+ 跳跃（R5）→ III 任意角重力场（R6）。旧 R3 在 R1 下方；R4 在 R2 正上方；R5/R6 在 R4 右侧。",
-    "en": "Rotate gravity vector only; camera stays axis-aligned. I fall → II walk (R4) → II+ jump (R5) → III field (R6). Legacy R3 under R1; R4 above R2; R5/R6 east of R4."
+    "zh": "只转重力矢量、不转镜头。I 落体 → II 摩擦（R4）→ II+ 跳跃（R5 at y=0）→ III 任意角重力场（R6）。旧 R3 在 R1 下方；R4 在 R2 正上方；R5/R6 在 R2 右侧同一走廊。",
+    "en": "Rotate gravity vector only; camera stays axis-aligned. I fall → II walk (R4) → II+ jump (R5 at y=0) → III field (R6). Legacy R3 under R1; R4 above R2; R5/R6 east of R2 on the Y=0 corridor."
   },
   "compat": {
     "fromSchemaVersion": 3,
@@ -27,7 +27,7 @@ export default {
       "layoutRevision 5: strip full-height R2_doorframe on load; keep the short catch stub under gate_R2_to_R4.",
       "R3 ceiling openings align to R1 pits only (160–240, 400–480). Seal the middle under R1_floorB.",
       "R3 L/R walls stay sealed; join-X skip applies only on the R0–R2 Y band.",
-      "layoutRevision 6: add R5 (jump) at (1920,-360) and R6 (field) at (2560,-360); open R4 right doorway; keep R2 stub + R3 pit seals."
+      "layoutRevision 6: add R5 (1920,0) + R6 (2560,0) on the Y=0 corridor; open R2 right toward R5; keep R2 stub + R3 pit seals; R4 stays above R2."
     ]
   },
   "sections": {
@@ -167,12 +167,12 @@ export default {
           "R0：漂浮 → 碰 gravityOrb → 获得 gravityFall（I）。世界重力矢量开启，「下」吸附最近轴；仍不能走/跳。",
           "I 阶段：用四向重力当唯一位移手段（着地时可改方向；空中锁定）。穿过 R1 缺口进入 R2。",
           "R2→R4：R2 顶开通道（第一扇真门，门禁 requireAbility: gravityFall）。右落到门洞右侧短立柱着地，把「下」拨到 up，落体「向上」坠入 R4。门前不得有通高墙。",
-          "R4：摩擦房。左上角 surfaceWalk 拾取 → 获得 II。此后可沿当前「下」行走/扒墙滑。右门走入 R5。",
-          "R5：橙球 reactionJumpOrb (2000, −80) → II+。feel 的 jumpVelocity/cut/coyote/buffer 生效；可贴墙跳。右侧高台+窗是跳跃软门（也可重力翻越）。",
-          "R6：紫球 gravityFieldOrb (2680, −160) → III。Q/E 转 45°（Shift+Q/E 15°），空中可改；[ ] 微调 g。镜头不转。",
+          "R4：摩擦房。左上角 surfaceWalk 拾取 → 获得 II。此后可沿当前「下」行走/扒墙滑。回 R2 右走进入 R5。",
+          "R5 (1920,0)：橙球 reactionJumpOrb (2000,220) → II+。feel jump/cut/coyote/buffer 生效；可贴墙跳。地板缺口 (2120,328,160,32) 是跳跃软门。",
+          "R6 (2560,0)：紫球 gravityFieldOrb (2880,120) → III。Q/E 转 45°（Shift+Q/E 15°），空中可改；[ ] 微调 g。镜头不转。",
           "旧 R3（R1 正下方）保留探索支线，不改 id，不承担摩擦/跳跃教学。"
         ],
-        "en": "R0 float → gravityFall → R2 flip up → R4 surfaceWalk → R5 reactionJump (2000,-80) → jump the R5 ledge window → R6 gravityField (2680,-160). Camera never rotates."
+        "en": "R0 float → gravityFall → R2 flip up → R4 surfaceWalk → back to R2 → walk east into R5 → reactionJumpOrb (2000,220) → jump gap (2120,328,160×32) → R6 gravityFieldOrb (2880,120). Camera never rotates."
       }
     },
     "rooms": [
@@ -315,7 +315,7 @@ export default {
         "w": 640,
         "h": 360,
         "role": "preFriction",
-        "intent": "顶通道进 R4；门洞右侧短立柱供 I 模式右落蹭地后翻 up。勿在门前放通高墙。",
+        "intent": "顶通道进 R4；门洞右侧短立柱供 I 模式右落蹭地后翻 up。右走廊开口接 R5（需 surfaceWalk）。勿在门前放通高墙。",
         "solids": [
           {
             "id": "R2_floor",
@@ -325,16 +325,6 @@ export default {
             "y": 328,
             "w": 640,
             "h": 32,
-            "fixed": true
-          },
-          {
-            "id": "R2_wallR",
-            "kind": "wall",
-            "space": "local",
-            "x": 624,
-            "y": 0,
-            "w": 16,
-            "h": 360,
             "fixed": true
           },
           {
@@ -488,7 +478,7 @@ export default {
         "w": 640,
         "h": 360,
         "role": "frictionLesson",
-        "intent": "摩擦房；左上 surfaceWalk；底缝接 R2 顶门；右门走入 R5。",
+        "intent": "摩擦房；左上 surfaceWalk；底缝接 R2 顶门。拿到 II 后回 R2 右走进入 R5。",
         "solids": [
           {
             "id": "R4_floor",
@@ -528,7 +518,7 @@ export default {
             "x": 624,
             "y": 0,
             "w": 16,
-            "h": 200,
+            "h": 360,
             "fixed": true
           },
           {
@@ -566,19 +556,29 @@ export default {
       {
         "id": "R5",
         "x": 1920,
-        "y": -360,
+        "y": 0,
         "w": 640,
         "h": 360,
         "role": "jumpLesson",
-        "intent": "reactionJump 教学。左门接 R4（可行走）。橙球在左地板。右侧高台+窗是跳跃软门（也可重力翻越）。",
+        "intent": "reactionJump 教学。左接 R2 走廊（需 surfaceWalk）。橙球 (2000,220)。地板缺口 gate_R5_mustJump world(2120,328,160,32) 是跳跃软门。右接 R6。",
         "solids": [
           {
-            "id": "R5_floor",
+            "id": "R5_floorL",
             "kind": "floor",
             "space": "local",
             "x": 0,
             "y": 328,
-            "w": 640,
+            "w": 200,
+            "h": 32,
+            "fixed": true
+          },
+          {
+            "id": "R5_floorR",
+            "kind": "floor",
+            "space": "local",
+            "x": 360,
+            "y": 328,
+            "w": 280,
             "h": 32,
             "fixed": true
           },
@@ -593,42 +593,12 @@ export default {
             "fixed": true
           },
           {
-            "id": "R5_wallL",
-            "kind": "wall",
-            "space": "local",
-            "x": 0,
-            "y": 0,
-            "w": 16,
-            "h": 200,
-            "fixed": true
-          },
-          {
-            "id": "R5_wallR_top",
-            "kind": "wall",
-            "space": "local",
-            "x": 624,
-            "y": 0,
-            "w": 16,
-            "h": 200,
-            "fixed": true
-          },
-          {
-            "id": "R5_wallR_bot",
-            "kind": "wall",
-            "space": "local",
-            "x": 624,
-            "y": 280,
-            "w": 16,
-            "h": 80,
-            "fixed": true
-          },
-          {
-            "id": "R5_exitLedge",
+            "id": "R5_orbPlat",
             "kind": "plat",
             "space": "local",
-            "x": 496,
-            "y": 264,
-            "w": 128,
+            "x": 40,
+            "y": 236,
+            "w": 120,
             "h": 16,
             "fixed": true
           }
@@ -637,11 +607,11 @@ export default {
       {
         "id": "R6",
         "x": 2560,
-        "y": -360,
+        "y": 0,
         "w": 640,
         "h": 360,
         "role": "fieldLesson",
-        "intent": "gravityField 教学。左窗接 R5 高台。紫球在小平台。拾取后可空中改任意角（45° 步进）。镜头不转。",
+        "intent": "gravityField 教学短厅。左接 R5。紫球 (2880,120)。拾取后可空中改任意角（45°）。镜头不转。",
         "solids": [
           {
             "id": "R6_floor",
@@ -664,26 +634,6 @@ export default {
             "fixed": true
           },
           {
-            "id": "R6_wallL_top",
-            "kind": "wall",
-            "space": "local",
-            "x": 0,
-            "y": 0,
-            "w": 16,
-            "h": 200,
-            "fixed": true
-          },
-          {
-            "id": "R6_wallL_bot",
-            "kind": "wall",
-            "space": "local",
-            "x": 0,
-            "y": 280,
-            "w": 16,
-            "h": 80,
-            "fixed": true
-          },
-          {
             "id": "R6_wallR",
             "kind": "wall",
             "space": "local",
@@ -697,8 +647,8 @@ export default {
             "id": "R6_orbPlat",
             "kind": "plat",
             "space": "local",
-            "x": 80,
-            "y": 200,
+            "x": 280,
+            "y": 136,
             "w": 96,
             "h": 16,
             "fixed": true
@@ -750,7 +700,7 @@ export default {
         "ability": "reactionJump",
         "roomId": "R5",
         "x": 2000,
-        "y": -80,
+        "y": 220,
         "color": "#ff8a65",
         "requires": [
           "surfaceWalk"
@@ -763,14 +713,14 @@ export default {
           "advancePhase": "jumpLesson",
           "statusBanner": "REACTION JUMP"
         },
-        "notes": "R5 左地板：房间原点 (1920,-360) + 本地 (80,280) → 世界 (2000,-80)。需先 surfaceWalk。右高台 local (496,264,128,16) 为跳跃软门，窗 local y 200–280。"
+        "notes": "R5 左平台：房间原点 (1920,0) + 本地 (80,220) → 世界 (2000,220)。需先 surfaceWalk。跳跃软门 gate_R5_mustJump world (2120,328,160,32)。"
       },
       {
         "id": "gravityFieldOrb",
         "ability": "gravityField",
         "roomId": "R6",
-        "x": 2680,
-        "y": -160,
+        "x": 2880,
+        "y": 120,
         "color": "#ce93d8",
         "requires": [
           "reactionJump"
@@ -783,7 +733,7 @@ export default {
           "advancePhase": "fieldLesson",
           "statusBanner": "GRAVITY FIELD"
         },
-        "notes": "R6 教学台：房间原点 (2560,-360) + 本地 (120,200) → 世界 (2680,-160)，在 R6_orbPlat 上方。需先 reactionJump。Q/E 45°（Shift 15°），空中可转；镜头不转。"
+        "notes": "R6 教学台：房间原点 (2560,0) + 本地 (320,120) → 世界 (2880,120)。需先 reactionJump。Q/E 45°（Shift 15°），空中可转；镜头不转。"
       }
     ],
     "gates": [
@@ -810,18 +760,26 @@ export default {
         "intent": "旧坑道入口；与摩擦教学无关。"
       },
       {
-        "id": "gate_R4_to_R5",
-        "fromRoomId": "R4",
+        "id": "gate_R2_to_R5",
+        "fromRoomId": "R2",
         "toRoomId": "R5",
         "kind": "sidePassage",
         "requireAbility": "surfaceWalk",
+        "intent": "R2 右走廊开口。surfaceWalk 后可行走进入 R5。左右共用竖墙省略。"
+      },
+      {
+        "id": "gate_R5_mustJump",
+        "fromRoomId": "R5",
+        "toRoomId": "R6",
+        "kind": "jumpGap",
+        "requireAbility": "reactionJump",
         "world": {
-          "x": 1904,
-          "y": -160,
-          "w": 32,
-          "h": 128
+          "x": 2120,
+          "y": 328,
+          "w": 160,
+          "h": 32
         },
-        "intent": "R4 右门。surfaceWalk 后可行走进入 R5。"
+        "intent": "R5 地板跳跃软门。拟用 reactionJump 越过；重力翻越也可。"
       },
       {
         "id": "gate_R5_to_R6",
@@ -829,13 +787,7 @@ export default {
         "toRoomId": "R6",
         "kind": "sidePassage",
         "requireAbility": "reactionJump",
-        "world": {
-          "x": 2544,
-          "y": -160,
-          "w": 32,
-          "h": 80
-        },
-        "intent": "R5 右窗。拟用 reactionJump 上高台；重力翻越也可（软门）。"
+        "intent": "R5 右走廊接 R6。需先越过 mustJump 缺口（软门）。"
       }
     ]
   }
