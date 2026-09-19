@@ -197,3 +197,25 @@ export function axisLabel(axis) {
       return 'DOWN';
   }
 }
+
+/** Screen-space down glyph (HUD / map). Not a camera rotation. */
+export const DOWN_ARROW_GLYPH = Object.freeze({
+  down: '↓',
+  up: '↑',
+  left: '←',
+  right: '→',
+});
+
+/** Phaser rotation (clockwise, y-down) for an arrow texture that points +Y. */
+export function downArrowRotation(axis) {
+  switch (normalizeDown(axis)) {
+    case 'left':
+      return Math.PI / 2;
+    case 'up':
+      return Math.PI;
+    case 'right':
+      return -Math.PI / 2;
+    default:
+      return 0;
+  }
+}

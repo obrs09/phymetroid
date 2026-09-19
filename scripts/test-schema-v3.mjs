@@ -20,12 +20,20 @@ import {
 } from '../src/designConfig.js';
 import {
   composeVelocity,
+  downArrowRotation,
   downVector,
+  DOWN_ARROW_GLYPH,
   gravityAccel,
   rotateCardinal,
   snapDownToNearestAxis,
   walkTangent,
 } from '../src/gravity.js';
+import { describeMapContents, describeRoomMapContents } from '../src/mapContents.js';
+import {
+  corridorJoinIsSealed,
+  corridorJoinXs,
+  listWorldSolidRects,
+} from '../src/worldSolids.js';
 import {
   ABILITY,
   advancePhaseOnAbility,
@@ -193,6 +201,76 @@ section('gravity vector math (no camera)', () => {
   assert.equal(snapDownToNearestAxis(10, 1), 'right');
   assert.equal(snapDownToNearestAxis(-1, -10), 'up');
   assert.equal(getGravityDown(), 'down');
+});
+
+section('R0-R1-R2 corridor joins are not sealed', () => {
+  const rooms = getRooms();
+  const rects = listWorldSolidRects(rooms, getGates());
+  const joins = corridorJoinXs(rooms);
+  assert.deepEqual(joins, [640, 1280]);
+  for (const x of joins) {
+    assert.equal(
+      corridorJoinIsSealed(rects, x),
+      false,
+      `corridor join x=${x} is sealed by a tall solid`
+    );
+    const tall = rects.filter((r) => r.x <= x && r.x + r.w >= x && r.h > 80 && r.y < 40 && r.y + r.h > 300);
+    assert.equal(tall.length, 0, `full-height wall at x=${x}: ${JSON.stringify(tall)}`);
+  }
+  const mergedFloor = rects.find((r) => r.tag === 'floor' && r.x < 1280 && r.x + r.w > 1280);
+  assert.ok(mergedFloor, 'R1 last floor and R2 floor should merge across x=1280');
+  const mergedR0 = rects.find((r) => r.tag === 'floor' && r.x < 640 && r.x + r.w > 640);
+  assert.ok(mergedR0, 'R0 floor and R1 first floor should merge across x=640');
+});
+
+section('visited map contents / unexplored stay empty', () => {
+  const rooms = getRooms();
+  const pickups = getPickups();
+  const gates = getGates();
+  const unseen = describeRoomMapContents(rooms.find((r) => r.id === 'R4'), {
+    visited: false,
+    pickups,
+    gates,
+    rooms,
+  });
+  assert.equal(unseen.pickups.length, 0);
+  assert.equal(unseen.gates.length, 0);
+  assert.equal(unseen.role, null);
+  const r2 = describeRoomMapContents(rooms.find((r) => r.id === 'R2'), {
+    visited: true,
+    pickups,
+    gates,
+    rooms,
+  });
+  assert.equal(r2.role, 'pre-fric');
+  assert.ok(r2.gates.some((g) => g.dest === 'R4' && g.edge === 'top'));
+  const r1 = describeRoomMapContents(rooms.find((r) => r.id === 'R1'), {
+    visited: true,
+    pickups,
+    gates,
+    rooms,
+  });
+  assert.equal(r1.role, 'hub');
+  assert.ok(r1.gates.some((g) => g.dest === 'R3' && g.edge === 'bottom'));
+  const r0 = describeRoomMapContents(rooms.find((r) => r.id === 'R0'), {
+    visited: true,
+    pickups,
+    gates,
+    rooms,
+  });
+  assert.ok(r0.pickups.some((p) => p.id === 'gravityOrb' && p.tag === 'G'));
+  const all = describeMapContents(rooms, { visitedIds: ['R0'], pickups, gates });
+  assert.equal(all.R4.pickups.length, 0);
+  assert.ok(all.R0.pickups.length > 0);
+});
+
+section('gravity down flash math (screen-space, no camera)', () => {
+  assert.equal(DOWN_ARROW_GLYPH.down, '↓');
+  assert.equal(DOWN_ARROW_GLYPH.right, '→');
+  assert.equal(downArrowRotation('down'), 0);
+  assert.equal(downArrowRotation('up'), Math.PI);
+  assert.equal(downArrowRotation('left'), Math.PI / 2);
+  assert.equal(downArrowRotation('right'), -Math.PI / 2);
 });
 
 section('abilities design not mixed into feel', () => {

@@ -9,12 +9,13 @@ import {
   subscribeDesign,
 } from '../designConfig.js';
 import { FeelDebugPanel } from '../feelDebugPanel.js';
+import { GravityDownFlash } from '../gravityFlash.js';
 import { addHudText, refreshHudTextResolution } from '../hudText.js';
+import { describeMapContents } from '../mapContents.js';
 import { RunHud } from '../runHud.js';
-import { buildWorldSolids } from '../worldSolids.js';
+import { buildWorldSolids, corridorOpenEdges, listWorldSolidRects } from '../worldSolids.js';
 import {
   applyGravityVectorToWorld,
-  axisLabel,
   composeVelocity,
   isSupportedOnDown,
   isTouchingWall,
@@ -137,6 +138,7 @@ export class GameScene extends Phaser.Scene {
       .setDepth(100);
 
     this.buildMapOverlay();
+    this.gravityFlash = new GravityDownFlash(this);
     // Cursors must exist before the panel reuses them for ↑↓←→.
     this.debugPanel = new FeelDebugPanel(this);
     this.runHud = new RunHud(this);
@@ -178,10 +180,14 @@ export class GameScene extends Phaser.Scene {
         setDown: (axis) => {
           const result = trySetGravityDown(axis, true);
           this.syncGravityFromState();
+          if (result.changed) this.flashGravityDown(result.down);
           return { ...result, ...window.__PHYMETROID_DEBUG__.pos() };
         },
         toggleFeel: () => this.toggleDebug(),
         toggleMap: () => this.toggleMap(),
+        flash: () => this.gravityFlash?.getState() ?? null,
+        mapContents: () => this.describeVisibleMapContents(),
+        solidsNear: (x, pad = 8) => this.solidsNear(x, pad),
       };
     }
 
@@ -254,12 +260,30 @@ export class GameScene extends Phaser.Scene {
       R3: 0x142038,
       R4: 0x14302a,
     };
-    for (const room of this.rooms()) {
+    const rooms = this.rooms();
+    for (const room of rooms) {
       const g = this.add.graphics();
       g.fillStyle(colors[room.id] ?? 0x16213e, 1);
       g.fillRect(room.x, room.y, room.w, room.h);
+      const open = corridorOpenEdges(room, rooms);
+      const x = room.x + 1;
+      const y = room.y + 1;
+      const w = room.w - 2;
+      const h = room.h - 2;
       g.lineStyle(2, 0x3d5a80, 0.6);
-      g.strokeRect(room.x + 1, room.y + 1, room.w - 2, room.h - 2);
+      g.beginPath();
+      g.moveTo(x, y);
+      g.lineTo(x + w, y);
+      if (!open.right) {
+        g.lineTo(x + w, y + h);
+      } else {
+        g.moveTo(x + w, y + h);
+      }
+      g.lineTo(x, y + h);
+      if (!open.left) {
+        g.lineTo(x, y);
+      }
+      g.strokePath();
       addHudText(this, room.x + px(6), room.y + px(6), room.id, {
         fontSize: UI_FONT_MD,
         color: '#546e7a',
@@ -316,12 +340,52 @@ export class GameScene extends Phaser.Scene {
       const rect = this.add.rectangle(rx + rw / 2, ry + rh / 2, rw, rh, 0x263238, 1);
       rect.setStrokeStyle(2, 0x546e7a, 1);
       this.mapRoot.add(rect);
-      const label = addHudText(this, rx + rw / 2, ry + rh / 2, r.id, {
+      const label = addHudText(this, rx + rw / 2, ry + px(3), r.id, {
         fontSize: UI_FONT_MD,
         color: '#90a4ae',
-      }).setOrigin(0.5);
+      }).setOrigin(0.5, 0);
       this.mapRoot.add(label);
-      this.mapRoomGfx[r.id] = { rect, label };
+      const role = addHudText(this, rx + rw / 2, ry + px(13), '', {
+        fontSize: UI_FONT_SM,
+        color: '#90a4ae',
+      }).setOrigin(0.5, 0).setVisible(false);
+      this.mapRoot.add(role);
+
+      const marks = [];
+      const contents = describeMapContents(rooms, {
+        visitedIds: new Set([r.id]),
+        pickups: getPickups(),
+        gates: getGates(),
+      })[r.id];
+      for (const p of contents.pickups) {
+        const mx = ox + (p.x - minX) * scale;
+        const my = oy + (p.y - minY) * scale;
+        const dot = this.add.circle(mx, my, px(2.5), p.color, 1);
+        dot.setStrokeStyle(1, 0xfffde7, 0.9);
+        this.mapRoot.add(dot);
+        const tag = addHudText(this, mx + px(5), my - px(4), p.tag, {
+          fontSize: UI_FONT_SM,
+          color: '#fff9c4',
+        }).setOrigin(0, 0);
+        this.mapRoot.add(tag);
+        marks.push(dot, tag);
+      }
+      for (const gate of contents.gates) {
+        const gx = ox + (gate.x - minX) * scale;
+        const gy = oy + (gate.y - minY) * scale;
+        const notch = this.add.rectangle(gx, gy, px(8), px(3), 0xffe082, 1);
+        this.mapRoot.add(notch);
+        const destOff = gate.edge === 'bottom' ? px(3) : -px(8);
+        const dest = addHudText(this, gx, gy + destOff, gate.dest, {
+          fontSize: UI_FONT_SM,
+          color: '#ffe082',
+        }).setOrigin(0.5, 0);
+        this.mapRoot.add(dest);
+        marks.push(notch, dest);
+      }
+      for (const mark of marks) mark.setVisible(false);
+
+      this.mapRoomGfx[r.id] = { rect, label, role, marks };
     }
 
     this.mapPlayerDot = this.add.circle(0, 0, px(2.5), 0x4fc3f7, 1);
@@ -332,7 +396,7 @@ export class GameScene extends Phaser.Scene {
       this,
       GAME_W / 2,
       GAME_H - px(18),
-      'dark=unseen  blue=visited  bright=here  dot=you',
+      'dark=unseen  G/W=orbs  gold=gate  visited shows contents',
       {
         fontSize: UI_FONT_SM,
         color: '#78909c',
@@ -399,6 +463,16 @@ export class GameScene extends Phaser.Scene {
       gfx.rect.setFillStyle(fill, 1);
       gfx.rect.setStrokeStyle(2, current ? 0xffe082 : visited ? 0x90caf9 : 0x424242, 1);
       gfx.label.setColor(visited || current ? '#e3f2fd' : '#616161');
+      const show = visited || current;
+      const roleHint = show ? describeMapContents([r], {
+        visitedIds: new Set([r.id]),
+        pickups: [],
+        gates: [],
+      })[r.id].role : null;
+      gfx.role?.setText(roleHint ? roleHint : '');
+      gfx.role?.setColor(current ? '#ffe082' : '#90a4ae');
+      gfx.role?.setVisible(Boolean(show && roleHint));
+      for (const mark of gfx.marks || []) mark.setVisible(show);
     }
     this.mapPlayerDot.setPosition(
       ox + (this.player.x - minX) * scale,
@@ -453,7 +527,10 @@ export class GameScene extends Phaser.Scene {
     const ability = spec.onCollect?.unlockAbility || spec.ability;
     if (ability) {
       unlockAbility(ability);
-      if (ability === ABILITY.GRAVITY_FALL) snapGravityDownToDefault();
+      if (ability === ABILITY.GRAVITY_FALL) {
+        snapGravityDownToDefault();
+        this.flashGravityDown(getGravityDown());
+      }
     }
     const items = spec.onCollect?.addItem;
     if (items) {
@@ -519,7 +596,29 @@ export class GameScene extends Phaser.Scene {
 
     if (!next) return;
     const result = trySetGravityDown(next, supported);
-    if (result.changed) this.syncGravityFromState();
+    if (result.changed) {
+      this.syncGravityFromState();
+      this.flashGravityDown(result.down);
+    }
+  }
+
+  flashGravityDown(axis) {
+    this.gravityFlash?.show(axis);
+  }
+
+  describeVisibleMapContents() {
+    return describeMapContents(this.rooms(), {
+      visitedIds: this.rooms().map((r) => r.id).filter((id) => hasVisitedRoom(id)),
+      pickups: getPickups(),
+      gates: getGates(),
+    });
+  }
+
+  solidsNear(x, pad = 8) {
+    const listed = listWorldSolidRects(this.rooms(), getGates()).filter(
+      (r) => r.x <= x + pad && r.x + r.w >= x - pad
+    );
+    return listed.map((r) => ({ x: r.x, y: r.y, w: r.w, h: r.h, tag: r.tag }));
   }
 
   update(time) {

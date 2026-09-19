@@ -27,6 +27,8 @@ copyAndPatch('rooms.js', '', ''); // identical
 copyAndPatch('scaleZoom.js', '', '');
 copyAndPatch('gravity.js', '', '');
 copyAndPatch('worldSolids.js', '', '');
+copyAndPatch('mapContents.js', '', '');
+copyAndPatch('gravityFlash.js', '', '');
 copyAndPatch('designConfig.js', '', '');
 copyAndPatch('runState.js', '', '');
 copyAndPatch('viewport.js', '', '');
