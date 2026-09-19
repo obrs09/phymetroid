@@ -82,6 +82,7 @@ export class GravityDownFlash {
       alpha: this.root.alpha,
       visible: this.root.visible,
       at: this.lastAt,
+      flashed: this.lastAxis != null,
     };
   }
 }

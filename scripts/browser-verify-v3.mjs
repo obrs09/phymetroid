@@ -102,7 +102,8 @@ check('picked gravityFall (not gravity)', run.abilities.includes('gravityFall') 
 check('phase exploration', run.phase === 'exploration', run.phase);
 check('item gravityOrb', run.items.gravityOrb === 1, JSON.stringify(run.items));
 const flashPickup = await page.evaluate(() => window.__PHYMETROID_DEBUG__.flash());
-check('flash down on gravityFall pickup', flashPickup?.axis === 'down' && flashPickup.visible, JSON.stringify(flashPickup));
+check('flash down on gravityFall pickup', flashPickup?.axis === 'down' && flashPickup.flashed, JSON.stringify(flashPickup));
+await page.screenshot({ path: `${OUT}/v3_02a_gravity_flash_down.png` });
 
 await new Promise((r) => setTimeout(r, 600));
 await page.screenshot({ path: `${OUT}/v3_02_gravity_fall.png` });
@@ -138,6 +139,9 @@ check(
 // Gravity right from floor (debug setDown — same path as L when grounded)
 const setRight = await page.evaluate(() => window.__PHYMETROID_DEBUG__.setDown('right'));
 check('setDown(right) from floor', setRight.down === 'right', JSON.stringify(setRight));
+const flashRight = await page.evaluate(() => window.__PHYMETROID_DEBUG__.flash());
+check('gravity flash after setDown(right)', flashRight?.axis === 'right' && flashRight.flashed, JSON.stringify(flashRight));
+await page.screenshot({ path: `${OUT}/v3_03a_gravity_flash_right.png` });
 await new Promise((r) => setTimeout(r, 900));
 const rightFall = await page.evaluate(() => ({
   run: window.__PHYMETROID_GET_RUN__(),
@@ -147,8 +151,6 @@ const rightFall = await page.evaluate(() => ({
 check('gravity vector is right', rightFall.run.gravityDown === 'right', rightFall.run.gravityDown);
 check('fell toward R1/R2 (x increased)', rightFall.pos.x > 280, JSON.stringify(rightFall.pos));
 check('camera still 0 while falling sideways', rightFall.cam === 0, String(rightFall.cam));
-const flashRight = await page.evaluate(() => window.__PHYMETROID_DEBUG__.flash());
-check('gravity flash after setDown(right)', flashRight?.axis === 'right' && flashRight.visible, JSON.stringify(flashRight));
 await page.screenshot({ path: `${OUT}/v3_03_gravity_right.png` });
 
 // R0 floor → R1 join must not ghost-block I-mode
