@@ -345,7 +345,7 @@ export class GameScene extends Phaser.Scene {
         color: '#90a4ae',
       }).setOrigin(0.5, 0);
       this.mapRoot.add(label);
-      const role = addHudText(this, rx + rw / 2, ry + px(13), '', {
+      const role = addHudText(this, rx + rw / 2, ry + px(14), '', {
         fontSize: UI_FONT_SM,
         color: '#90a4ae',
       }).setOrigin(0.5, 0).setVisible(false);
@@ -373,13 +373,13 @@ export class GameScene extends Phaser.Scene {
       for (const gate of contents.gates) {
         const gx = ox + (gate.x - minX) * scale;
         const gy = oy + (gate.y - minY) * scale;
-        const notch = this.add.rectangle(gx, gy, px(8), px(3), 0xffe082, 1);
+        const inward = gate.edge === 'bottom' ? -1 : 1;
+        const notch = this.add.rectangle(gx, gy + inward * px(2), px(10), px(4), 0xffe082, 1);
         this.mapRoot.add(notch);
-        const destOff = gate.edge === 'bottom' ? px(3) : -px(8);
-        const dest = addHudText(this, gx, gy + destOff, gate.dest, {
+        const dest = addHudText(this, gx, gy + inward * px(8), gate.dest, {
           fontSize: UI_FONT_SM,
           color: '#ffe082',
-        }).setOrigin(0.5, 0);
+        }).setOrigin(0.5, 0.5);
         this.mapRoot.add(dest);
         marks.push(notch, dest);
       }
