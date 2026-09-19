@@ -1,30 +1,47 @@
 import Phaser from 'phaser';
 import { GAME_W, GAME_H } from './rooms.js';
 import { GameScene } from './scenes/GameScene.js';
+import { computeIntegerZoom } from './scaleZoom.js';
 
-const config = {
-  type: Phaser.AUTO,
-  parent: 'game-container',
-  width: GAME_W,
-  height: GAME_H,
-  backgroundColor: '#1a1a2e',
-  pixelArt: true,
-  roundPixels: true,
-  antialias: false,
-  physics: {
-    default: 'arcade',
-    arcade: {
-      gravity: { x: 0, y: 0 },
-      debug: false,
-      // Fixed timestep feel via fps target
-      fps: 60,
+function boot() {
+  const zoom = computeIntegerZoom(GAME_W, GAME_H);
+
+  const config = {
+    type: Phaser.AUTO,
+    parent: 'game-container',
+    width: GAME_W,
+    height: GAME_H,
+    zoom,
+    backgroundColor: '#1a1a2e',
+    pixelArt: true,
+    roundPixels: true,
+    antialias: false,
+    physics: {
+      default: 'arcade',
+      arcade: {
+        gravity: { x: 0, y: 0 },
+        debug: false,
+        fps: 60,
+      },
     },
-  },
-  scale: {
-    mode: Phaser.Scale.FIT,
-    autoCenter: Phaser.Scale.CENTER_BOTH,
-  },
-  scene: [GameScene],
-};
+    scale: {
+      // Integer `zoom` above; NONE avoids fractional FIT blur.
+      mode: Phaser.Scale.NONE,
+      autoCenter: Phaser.Scale.CENTER_BOTH,
+    },
+    scene: [GameScene],
+  };
 
-new Phaser.Game(config);
+  const game = new Phaser.Game(config);
+
+  let lastZoom = zoom;
+  window.addEventListener('resize', () => {
+    const next = computeIntegerZoom(GAME_W, GAME_H);
+    if (next === lastZoom) return;
+    lastZoom = next;
+    game.scale.setZoom(next);
+    game.scale.refresh();
+  });
+}
+
+boot();

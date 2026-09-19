@@ -52,6 +52,25 @@ Optional later: replace with `npm run build` output under `docs/` once you can `
 
 可选：本地 `git push` 可用后，再用 `npm run build` 产物覆盖 `docs/`。
 
+
+## Display / 显示
+
+Logical size **320×180**, scaled with **integer zoom** (`Scale.NONE` + `computeIntegerZoom`) so pixel art stays sharp. Letterboxing appears when the window is not an exact multiple.
+
+逻辑分辨率 **320×180**，使用**整数倍缩放**，避免 FIT 非整数放大导致发糊。
+
+## Docs sync / Pages 源同步
+
+GitHub Pages serves `docs/` only. After changing game logic under `src/`:
+
+```bash
+npm run docs:sync
+```
+
+This copies shared modules into `docs/src/` and rewrites Phaser imports to the UMD shim.
+
+改 `src/` 后请运行 `npm run docs:sync`，再提交，以免 Pages 与本地 Vite 逻辑分叉。
+
 ## Tech / 技术
 
 - Phaser **3.80+**, Arcade Physics (AABB)
