@@ -4,6 +4,24 @@ import { applyPlayerFeelLimits, createPlayer } from '../player.js';
 import { getFeel, subscribeDesign } from '../designConfig.js';
 import { FeelDebugPanel } from '../feelDebugPanel.js';
 import { addHudText, refreshHudTextResolution } from '../hudText.js';
+import { RunHud } from '../runHud.js';
+import {
+  ABILITY,
+  addItem,
+  advancePhaseOnGravity,
+  damage,
+  getHp,
+  getMaxHp,
+  getPhase,
+  getRunState,
+  hasAbility,
+  hasVisitedRoom,
+  heal,
+  isDead,
+  markRoomVisited,
+  respawn,
+  unlockAbility,
+} from '../runState.js';
 
 /**
  * First-room Metroidvania prototype:
@@ -14,11 +32,9 @@ import { addHudText, refreshHudTextResolution } from '../hudText.js';
 export class GameScene extends Phaser.Scene {
   constructor() {
     super('GameScene');
-    this.gravityOn = false;
     this.currentRoomId = null;
     this.debugVisible = false;
     this.mapVisible = false;
-    this.visitedRooms = new Set();
     this.coyoteUntil = 0;
     this.jumpBufferUntil = 0;
     this.jumpHeld = false;
@@ -64,7 +80,7 @@ export class GameScene extends Phaser.Scene {
       this,
       GAME_W / 2,
       GAME_H - px(12),
-      'NUDGE TO YELLOW: GRAVITY  |  M MAP  |  F1 FEEL',
+      this.hintLine(),
       {
         fontSize: UI_FONT_MD,
         color: '#90a4ae',
@@ -77,8 +93,13 @@ export class GameScene extends Phaser.Scene {
     this.buildMapOverlay();
     // Cursors must exist before the panel reuses them for ↑↓←→.
     this.debugPanel = new FeelDebugPanel(this);
+    this.runHud = new RunHud(this);
     this._unsubDesign = subscribeDesign(() => this.applyLiveFeel());
     this.applyLiveFeel();
+    this.syncGravityFromState();
+    if (hasAbility(ABILITY.GRAVITY) && this.pickup?.active) {
+      this.pickup.destroy();
+    }
 
     const startRoom = findRoomAt(this.player.x, this.player.y) || ROOMS[0];
     this.markVisited(startRoom);
@@ -90,6 +111,8 @@ export class GameScene extends Phaser.Scene {
     });
     this.input.keyboard.on('keydown-BACKTICK', () => this.toggleDebug());
     this.input.keyboard.on('keydown-M', () => this.toggleMap());
+    this.input.keyboard.on('keydown-NINE', () => this.debugDamage(1));
+    this.input.keyboard.on('keydown-ZERO', () => heal(1));
 
     refreshHudTextResolution(this.scale.zoom);
 
@@ -98,13 +121,50 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
+  hintLine() {
+    return hasAbility(ABILITY.GRAVITY)
+      ? 'A/D MOVE  W/SPACE JUMP  M MAP  F1 FEEL  F FULL'
+      : 'NUDGE TO YELLOW: GRAVITY  |  M MAP  |  F1 FEEL  |  F FULL';
+  }
+
+  gravityOn() {
+    return hasAbility(ABILITY.GRAVITY);
+  }
+
+  syncGravityFromState() {
+    if (!this.player || !this.gravityOn()) return;
+    const feel = getFeel();
+    this.physics.world.gravity.y = feel.gravityY;
+    this.player.body.setAllowGravity(true);
+    applyPlayerFeelLimits(this.player, feel);
+    this.hintText?.setText(this.hintLine());
+  }
+
   applyLiveFeel() {
     const feel = getFeel();
     applyPlayerFeelLimits(this.player, feel);
-    if (this.gravityOn) {
+    if (this.gravityOn()) {
       this.physics.world.gravity.y = feel.gravityY;
+      this.player?.body?.setAllowGravity(true);
     }
     this.debugPanel?.refreshFields();
+    this.hintText?.setText(this.hintLine());
+  }
+
+  syncOverlayHud() {
+    this.runHud?.setVisible(!this.debugVisible && !this.mapVisible);
+  }
+
+  debugDamage(n) {
+    damage(n);
+    if (!isDead()) return;
+    this.statusText.setText('DOWN');
+    this.statusText.setVisible(true);
+    this.player.setVelocity(0, 0);
+    this.time.delayedCall(700, () => {
+      respawn();
+      this.statusText.setVisible(false);
+    });
   }
 
   drawRoomBackgrounds() {
@@ -189,13 +249,14 @@ export class GameScene extends Phaser.Scene {
   }
 
   markVisited(room) {
-    if (room) this.visitedRooms.add(room.id);
+    if (room) markRoomVisited(room.id);
   }
 
   closeMap() {
     if (!this.mapVisible) return;
     this.mapVisible = false;
     this.mapRoot.setVisible(false);
+    this.syncOverlayHud();
   }
 
   closeDebug() {
@@ -203,6 +264,7 @@ export class GameScene extends Phaser.Scene {
     this.debugVisible = false;
     this.debugPanel.setVisible(false);
     if (this.physics.world.isPaused) this.physics.world.resume();
+    this.syncOverlayHud();
   }
 
   toggleMap() {
@@ -213,6 +275,7 @@ export class GameScene extends Phaser.Scene {
       this.refreshMapOverlay();
       this.player.setVelocity(0, 0);
     }
+    this.syncOverlayHud();
   }
 
   toggleDebug() {
@@ -226,6 +289,7 @@ export class GameScene extends Phaser.Scene {
     } else if (this.physics.world.isPaused) {
       this.physics.world.resume();
     }
+    this.syncOverlayHud();
   }
 
   refreshMapOverlay() {
@@ -233,7 +297,7 @@ export class GameScene extends Phaser.Scene {
     const { ox, oy, minX, minY, scale } = this.mapLayout;
     for (const r of ROOMS) {
       const gfx = this.mapRoomGfx[r.id];
-      const visited = this.visitedRooms.has(r.id);
+      const visited = hasVisitedRoom(r.id);
       const current = r.id === this.currentRoomId;
       let fill = 0x212121;
       if (visited) fill = 0x1a237e;
@@ -337,16 +401,15 @@ export class GameScene extends Phaser.Scene {
   onPickup(_player, pickup) {
     if (!pickup.active) return;
     pickup.destroy();
-    this.gravityOn = true;
-    const feel = getFeel();
-    this.physics.world.gravity.y = feel.gravityY;
-    this.player.body.setAllowGravity(true);
-    applyPlayerFeelLimits(this.player, feel);
+    unlockAbility(ABILITY.GRAVITY);
+    addItem('gravityOrb', 1);
+    advancePhaseOnGravity();
+    this.syncGravityFromState();
 
     this.statusText.setText('GRAVITY ON');
     this.statusText.setVisible(true);
     this.time.delayedCall(2000, () => this.statusText.setVisible(false));
-    this.hintText.setText('A/D MOVE  W/SPACE JUMP  M MAP  F1 FEEL');
+    this.hintText.setText(this.hintLine());
   }
 
   snapCameraToRoom(room, instant = false) {
@@ -386,11 +449,15 @@ export class GameScene extends Phaser.Scene {
       consumeJumpEdges(false);
       this.debugPanel.refreshStatus({
         room: this.currentRoomId,
-        gravityOn: this.gravityOn,
+        gravityOn: this.gravityOn(),
         grounded,
         coyote: Math.max(0, Math.ceil(this.coyoteUntil - now)),
         x: this.player.x,
         y: this.player.y,
+        hp: getHp(),
+        maxHp: getMaxHp(),
+        phase: getPhase(),
+        deaths: getRunState().deaths,
       });
       return;
     }
@@ -417,7 +484,7 @@ export class GameScene extends Phaser.Scene {
       Phaser.Input.Keyboard.JustUp(this.keys.w) ||
       Phaser.Input.Keyboard.JustUp(this.keys.space);
 
-    if (this.gravityOn) {
+    if (this.gravityOn()) {
       const speed = grounded ? feel.moveSpeed : feel.moveSpeed * feel.airControl;
       let vx = 0;
       if (left) vx = -speed;
