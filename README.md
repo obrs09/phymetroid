@@ -10,6 +10,7 @@ Phaser 3 + Vite 独立游戏原型：漂浮开场 → 重力拾取 → 行走跳
 |---|---|
 | A / D or ← → | Move left/right **after** gravity / 重力开启后左右移动 |
 | W / Space / ↑ | Jump when grounded **after** gravity / 重力开启且着地后跳跃 |
+| M | Room map overlay / 房间地图 |
 | F1 or `` ` `` (backtick) | Toggle debug overlay / 开关调试信息 |
 
 **Before gravity:** player floats; no walk/jump (only a gentle air nudge with A/D to reach the yellow pickup). Touch pickup → `GRAVITY ON`.
@@ -52,6 +53,12 @@ Optional later: replace with `npm run build` output under `docs/` once you can `
 
 可选：本地 `git push` 可用后，再用 `npm run build` 产物覆盖 `docs/`。
 
+
+## Feel / 手感
+
+Tuned toward Metroid-like weight: gravity `980`, jump `-275`, move `110`, coyote `90ms`, jump buffer `100ms`, early jump release cuts upward speed (`0.45`).
+
+偏银河战士重量：更重下落、可变跳跃高度、土狼时间与跳跃缓冲。
 
 ## Display / 显示
 

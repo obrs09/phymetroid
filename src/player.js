@@ -2,9 +2,22 @@ import Phaser from 'phaser';
 
 export const PLAYER_W = 12;
 export const PLAYER_H = 16;
-export const MOVE_SPEED = 90;
-export const JUMP_VELOCITY = -220;
-export const GRAVITY_Y = 600;
+
+/**
+ * Feel targets (Metroid-ish, still readable on 320×180):
+ * - Higher gravity → less floaty hang time
+ * - Stronger jump impulse → still clears a 24px block
+ * - Coyote + buffer → jumps feel fair at ledge edges
+ * - Variable jump → tap = short hop, hold = full jump
+ */
+export const MOVE_SPEED = 110;
+export const AIR_CONTROL = 0.85; // fraction of MOVE_SPEED while airborne
+export const JUMP_VELOCITY = -275;
+export const JUMP_CUT_MULTIPLIER = 0.45; // on jump release, keep this * upward speed if still rising
+export const GRAVITY_Y = 980;
+export const MAX_FALL_SPEED = 320;
+export const COYOTE_MS = 90;
+export const JUMP_BUFFER_MS = 100;
 
 /**
  * Create a simple rectangle texture for the player (no external art).
@@ -33,7 +46,7 @@ export function createPlayer(scene, x, y) {
   const body = scene.physics.add.sprite(x, y, key);
   body.setCollideWorldBounds(true);
   body.setBounce(0);
-  body.setMaxVelocity(MOVE_SPEED * 1.5, 400);
+  body.setMaxVelocity(MOVE_SPEED * 1.15, MAX_FALL_SPEED);
   body.body.setSize(PLAYER_W, PLAYER_H);
   body.body.setAllowGravity(false);
   body.setDepth(10);
