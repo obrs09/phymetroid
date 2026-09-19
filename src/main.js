@@ -6,9 +6,13 @@ import './designConfig.js';
 
 function boot() {
   // Keep F1 for the in-game feel debugger (avoid browser help overlay).
-  window.addEventListener('keydown', (e) => {
-    if (e.key === 'F1') e.preventDefault();
-  });
+  window.addEventListener(
+    'keydown',
+    (e) => {
+      if (e.key === 'F1') e.preventDefault();
+    },
+    true
+  );
 
   const zoom = computeIntegerZoom(GAME_W, GAME_H);
 

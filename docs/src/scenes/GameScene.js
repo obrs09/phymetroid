@@ -39,6 +39,7 @@ export class GameScene extends Phaser.Scene {
     this.physics.add.overlap(this.player, this.pickup, this.onPickup, null, this);
 
     this.cursors = this.input.keyboard.createCursorKeys();
+    this.input.keyboard.addCapture([Phaser.Input.Keyboard.KeyCodes.F1]);
     this.keys = this.input.keyboard.addKeys({
       a: Phaser.Input.Keyboard.KeyCodes.A,
       d: Phaser.Input.Keyboard.KeyCodes.D,
