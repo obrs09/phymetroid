@@ -9,6 +9,7 @@ export const ROLE_HINT = Object.freeze({
   preFriction: 'pre-fric',
   frictionLesson: 'fric',
   jumpLesson: 'jump',
+  fieldStub: 'field',
   fieldLesson: 'field',
   legacyPit: 'pit',
 });
@@ -45,10 +46,10 @@ function gateEdge(gate, room) {
   if (gate.kind === 'ceilingPassage') {
     return gate.fromRoomId === room.id ? 'top' : 'bottom';
   }
-  if (gate.kind === 'floorGap') {
+  if (gate.kind === 'floorGap' || gate.kind === 'jumpGap' || gate.kind === 'mustJumpGap') {
     return gate.fromRoomId === room.id ? 'bottom' : 'top';
   }
-  if (gate.kind === 'sidePassage') {
+  if (gate.kind === 'sidePassage' || gate.kind === 'corridorJoin') {
     if (gate.world && room) {
       const cx = gate.world.x + gate.world.w / 2;
       if (cx >= room.x + room.w - 8) return 'right';

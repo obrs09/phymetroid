@@ -18,7 +18,7 @@ import { px } from './rooms.js';
 import { tagFixed } from './gravity.js';
 
 const SOLID_KINDS = new Set(['floor', 'ceiling', 'wall', 'plat', 'block', 'doorframe', 'custom']);
-const CORRIDOR_ROOM_IDS = new Set(['R0', 'R1', 'R2']);
+const CORRIDOR_ROOM_IDS = new Set(['R0', 'R1', 'R2', 'R5', 'R6']);
 
 const KIND_COLOR = Object.freeze({
   floor: 0x4e342e,
@@ -94,7 +94,7 @@ function addHorizontalWithGap(addRect, x, y, w, h, gap, color) {
 /** Horizontally adjacent room-join X values on the R0–R1–R2 band. */
 export function corridorJoinXs(rooms = []) {
   const joins = [];
-  const band = rooms.filter((r) => r && (r.id === 'R0' || r.id === 'R1' || r.id === 'R2'));
+  const band = rooms.filter((r) => r && CORRIDOR_ROOM_IDS.has(r.id));
   for (const a of band) {
     for (const b of band) {
       if (a.id >= b.id) continue;
@@ -123,8 +123,8 @@ export function occupiesCorridorPlayableBand(y, h, minOverlap = 40) {
  * Skip a full-height (or tall) wall that would seal a corridor join.
  * A large / full-height doorway is "place nothing" — lintels stay on the
  * room ceiling/floor slabs instead.
- * Only walls that occupy the R0–R2 playable Y band are skipped. R3/R4 walls
- * that merely share a join X (640 / 1280) must stay sealed.
+ * Only walls that occupy the R0–R2–R5–R6 playable Y band are skipped. R3/R4
+ * walls that merely share a join X (640 / 1280) must stay sealed.
  */
 function addWallUnlessCorridorJoin(addRect, joinXs, x, y, w, h, color, tag) {
   const sealsJoin =
@@ -372,7 +372,6 @@ function appendHardcodedRooms(rooms, gates, helpers) {
   const r2 = roomById(rooms, 'R2');
   if (r2 && !roomHasSolids(r2)) {
     addFloor(r2.x, r2.y + r2.h - floorH, r2.w, floorH, 0x4e342e);
-    addWall(r2.x + r2.w - wallW, r2.y, wallW, r2.h, 0x3e2723);
     addHorizontalWithGap(addCeil, r2.x, r2.y, r2.w, wallW, gap, 0x3e2723);
     addRect(r2.x + px(60), r2.y + px(110), px(40), platH, 0x6d4c41, 'plat');
     addRect(r2.x + px(160), r2.y + px(80), px(40), platH, 0x6d4c41, 'plat');
@@ -410,22 +409,19 @@ function appendHardcodedRooms(rooms, gates, helpers) {
 
   const r5 = roomById(rooms, 'R5');
   if (r5 && !roomHasSolids(r5)) {
-    addRect(r5.x, r5.y + r5.h - floorH, r5.w, floorH, 0x4e3b2f, 'floor');
-    addRect(r5.x, r5.y, r5.w, wallW, 0x3e2723, 'ceiling');
-    addRect(r5.x, r5.y, wallW, px(100), 0x5d4037, 'wall');
-    addRect(r5.x + r5.w - wallW, r5.y, wallW, px(100), 0x5d4037, 'wall');
-    addRect(r5.x + r5.w - wallW, r5.y + px(140), wallW, px(40), 0x5d4037, 'wall');
-    addRect(r5.x + px(248), r5.y + px(132), px(64), platH, 0xbf6a4e, 'plat');
+    addFloor(r5.x, r5.y + r5.h - floorH, px(100), floorH, 0x4e3b2f);
+    addFloor(r5.x + px(180), r5.y + r5.h - floorH, px(140), floorH, 0x4e3b2f);
+    addCeil(r5.x, r5.y, r5.w, wallW, 0x3e2723);
+    addRect(r5.x + px(20), r5.y + px(130), px(48), platH, 0xbf6a4e, 'plat');
+    addRect(r5.x + px(180), r5.y + px(120), px(60), platH, 0xbf6a4e, 'plat');
   }
 
   const r6 = roomById(rooms, 'R6');
   if (r6 && !roomHasSolids(r6)) {
-    addRect(r6.x, r6.y + r6.h - floorH, r6.w, floorH, 0x4a148c, 'floor');
-    addRect(r6.x, r6.y, r6.w, wallW, 0x311b92, 'ceiling');
-    addRect(r6.x, r6.y, wallW, px(100), 0x6a1b9a, 'wall');
-    addRect(r6.x, r6.y + px(140), wallW, px(40), 0x6a1b9a, 'wall');
-    addRect(r6.x + r6.w - wallW, r6.y, wallW, r6.h, 0x6a1b9a, 'wall');
-    addRect(r6.x + px(40), r6.y + px(100), px(48), platH, 0x8e24aa, 'plat');
+    addFloor(r6.x, r6.y + r6.h - floorH, r6.w, floorH, 0x4a148c);
+    addCeil(r6.x, r6.y, r6.w, wallW, 0x311b92);
+    addWall(r6.x + r6.w - wallW, r6.y, wallW, r6.h, 0x6a1b9a);
+    addRect(r6.x + px(140), r6.y + px(80), px(64), platH, 0x8e24aa, 'plat');
   }
 }
 
@@ -468,7 +464,7 @@ export function listWorldSolidRects(rooms, gates = []) {
  * True when a vertical band around `x` is sealed by a tall solid
  * (floor/ceiling slabs and short platforms do not count).
  */
-/** Same-Y abutting rooms (R0–R2 corridor and R4–R5–R6 jump/field band). */
+/** Same-Y abutting rooms (R0–R2–R5–R6 Y=0 corridor; R4 is a separate band). */
 export function horizontalJoinXs(rooms = []) {
   const joins = [];
   for (const a of rooms) {

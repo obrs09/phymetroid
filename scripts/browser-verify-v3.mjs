@@ -79,16 +79,16 @@ check('schemaVersion 4', boot.schema === 4, String(boot.schema));
 const solidCounts = Object.fromEntries(boot.rooms.map((r) => [r.id, r.solids]));
 check(
   'v4 solid counts',
-  JSON.stringify(solidCounts) === JSON.stringify({ R0: 5, R1: 6, R2: 7, R3: 8, R4: 7, R5: 6, R6: 6 }),
+  JSON.stringify(solidCounts) === JSON.stringify({ R0: 5, R1: 6, R2: 6, R3: 8, R4: 7, R5: 5, R6: 4 }),
   JSON.stringify(solidCounts)
 );
-check('layoutRevision 6', boot.layoutRevision === 6, String(boot.layoutRevision));
+check('layoutRevision 5', boot.layoutRevision === 5, String(boot.layoutRevision));
 check('baked design validates', Array.isArray(boot.validation) && boot.validation.length === 0, JSON.stringify(boot.validation));
 check('logical 640x360', boot.logical.w === 640 && boot.logical.h === 360, JSON.stringify(boot.logical));
 check('R3 under R1', boot.rooms.find((r) => r.id === 'R3')?.y === 360);
 check('R4 above R2', boot.rooms.find((r) => r.id === 'R4')?.x === 1280 && boot.rooms.find((r) => r.id === 'R4')?.y === -360);
-check('R5 east of R4', boot.rooms.find((r) => r.id === 'R5')?.x === 1920 && boot.rooms.find((r) => r.id === 'R5')?.y === -360);
-check('R6 east of R5', boot.rooms.find((r) => r.id === 'R6')?.x === 2560 && boot.rooms.find((r) => r.id === 'R6')?.y === -360);
+check('R5 east of R2 on Y=0', boot.rooms.find((r) => r.id === 'R5')?.x === 1920 && boot.rooms.find((r) => r.id === 'R5')?.y === 0);
+check('R6 east of R5 on Y=0', boot.rooms.find((r) => r.id === 'R6')?.x === 2560 && boot.rooms.find((r) => r.id === 'R6')?.y === 0);
 check('surfaceWalkOrb coords', boot.orb?.x === 1320 && boot.orb?.y === -320, JSON.stringify(boot.orb));
 check('camera rotation 0 at boot', boot.cam === 0, String(boot.cam));
 check('start no abilities', boot.run.abilities.length === 0);
@@ -250,7 +250,7 @@ check(
   !oldDoor.near.some((s) => s.h >= 200 && s.y < 40 && s.y + s.h > 280),
   JSON.stringify(oldDoor.near)
 );
-check('export restamps layoutRevision 6', oldDoor.rev === 6, String(oldDoor.rev));
+check('export restamps layoutRevision 5', oldDoor.rev === 5, String(oldDoor.rev));
 
 await page.evaluate(() => window.__PHYMETROID_DEBUG__.setDown('up'));
 await new Promise((r) => setTimeout(r, 1100));
@@ -295,21 +295,37 @@ const j1 = await page.evaluate(() => window.__PHYMETROID_DEBUG__.pos());
 check('II-mode cannot jump (needs reactionJump)', j1.y >= j0.y - 6, `y ${j0.y.toFixed(1)} → ${j1.y.toFixed(1)}`);
 await page.screenshot({ path: `${OUT}/v3_07_walk_no_jump.png` });
 
+// ACCEPTANCE: without jump, cannot stably cross the R5 mid gap.
+await page.evaluate(() => {
+  window.__PHYMETROID_DEBUG__.setDown('down');
+  window.__PHYMETROID_DEBUG__.warp(2100, 300);
+});
+await new Promise((r) => setTimeout(r, 400));
+await page.keyboard.down('KeyD');
+await new Promise((r) => setTimeout(r, 900));
+await page.keyboard.up('KeyD');
+const gapFall = await page.evaluate(() => window.__PHYMETROID_DEBUG__.pos());
+check(
+  'no jump cannot stably cross R5 gap',
+  gapFall.y > 340 || gapFall.x < 2280,
+  JSON.stringify(gapFall)
+);
+
 // R5 reactionJump orb (requires surfaceWalk — already unlocked)
 await page.evaluate(() => {
   window.__PHYMETROID_DEBUG__.setDown('down');
-  window.__PHYMETROID_DEBUG__.warp(2000, -80);
+  window.__PHYMETROID_DEBUG__.warp(2000, 220);
 });
 await new Promise((r) => setTimeout(r, 500));
 run = await page.evaluate(() => window.__PHYMETROID_GET_RUN__());
 check('picked reactionJump', run.abilities.includes('reactionJump'), JSON.stringify(run.abilities));
 check('phase jumpLesson', run.phase === 'jumpLesson', run.phase);
-check('item jumpCore', run.items.jumpCore === 1, JSON.stringify(run.items));
+check('item jumpBooster', run.items.jumpBooster === 1, JSON.stringify(run.items));
 await page.screenshot({ path: `${OUT}/v4_08_reaction_jump_orb.png` });
 
 await page.evaluate(() => {
   window.__PHYMETROID_DEBUG__.setDown('down');
-  window.__PHYMETROID_DEBUG__.warp(2000, -48);
+  window.__PHYMETROID_DEBUG__.warp(2100, 300);
 });
 await new Promise((r) => setTimeout(r, 500));
 const jump0 = await page.evaluate(() => window.__PHYMETROID_DEBUG__.pos());
@@ -324,12 +340,33 @@ check(
 );
 await page.screenshot({ path: `${OUT}/v4_09_jump.png` });
 
+// ACCEPTANCE: with reactionJump, can stand on R5_floorR and R5_ledge.
+const onFloorR = await page.evaluate(() => {
+  window.__PHYMETROID_DEBUG__.setDown('down', true);
+  return window.__PHYMETROID_DEBUG__.warp(2400, 300);
+});
+await new Promise((r) => setTimeout(r, 400));
+const floorR = await page.evaluate(() => window.__PHYMETROID_DEBUG__.pos());
+check(
+  'can stand on R5_floorR after jump unlock',
+  floorR.room === 'R5' && floorR.x > 2280 && floorR.y < 330,
+  JSON.stringify({ onFloorR, floorR })
+);
+const onLedge = await page.evaluate(() => window.__PHYMETROID_DEBUG__.warp(2340, 224));
+await new Promise((r) => setTimeout(r, 400));
+const ledgePos = await page.evaluate(() => window.__PHYMETROID_DEBUG__.pos());
+check(
+  'can stand on R5_ledge after jump unlock',
+  ledgePos.room === 'R5' && ledgePos.y < 250 && ledgePos.x >= 2280,
+  JSON.stringify({ onLedge, ledgePos })
+);
+
 // R6 gravityField orb
-await page.evaluate(() => window.__PHYMETROID_DEBUG__.warp(2680, -160));
+await page.evaluate(() => window.__PHYMETROID_DEBUG__.warp(2880, 120));
 await new Promise((r) => setTimeout(r, 500));
 run = await page.evaluate(() => window.__PHYMETROID_GET_RUN__());
 check('picked gravityField', run.abilities.includes('gravityField'), JSON.stringify(run.abilities));
-check('phase fieldLesson', run.phase === 'fieldLesson', run.phase);
+check('phase exploration after field (dump stub)', run.phase === 'exploration', run.phase);
 check('item fieldCore', run.items.fieldCore === 1, JSON.stringify(run.items));
 
 const fieldAir = await page.evaluate(() => window.__PHYMETROID_DEBUG__.setDown(45, false));
@@ -438,12 +475,13 @@ check('F1 revoke gravityFall', cheatRevoke.has === false, JSON.stringify(cheatRe
 const warped = await page.evaluate(() => window.__PHYMETROID_DEBUG__.warpRoom('R5'));
 check(
   'warpRoom R5 safe spawn',
-  warped?.room === 'R5' && warped.x === 2100 && warped.y === -60,
+  warped?.room === 'R5' && warped.x === 2080 && warped.y === 300,
   JSON.stringify(warped)
 );
 const warpPos = await page.evaluate(() => window.__PHYMETROID_DEBUG__.pos());
 check('camera snapped to R5 after warp', warpPos.room === 'R5', JSON.stringify(warpPos));
 
+// Keyboard 1–4 must not fire when the debugger is closed.
 await page.evaluate(() => window.__PHYMETROID_DEBUG__.toggleFeel());
 await new Promise((r) => setTimeout(r, 200));
 const beforeKey = await page.evaluate(() => window.__PHYMETROID_GET_RUN__().abilities.slice());

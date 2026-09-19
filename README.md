@@ -29,15 +29,15 @@ Phaser 3 + Vite 独立游戏原型：漂浮开场 → **gravityFall**（落体�
 
 **gravityFall 前：** 角色漂浮，不能走/跳（仅 A/D 轻挪去碰黄色球）。拾取后解锁 `gravityFall`（旧 id `gravity` 导入时映射），down 吸附为下，阶段 `intro` → `exploration`。此时是落体：不能走/跳/滑墙。仅着地时可改四向重力。
 
-**surfaceWalk (teal orb in R4 at 1320, −320):** walk with friction along current down + wall slide. Still no jump. Phase → `frictionLesson`. Walk the R4 right doorway into R5.
+**surfaceWalk (teal orb in R4 at 1320, −320):** walk with friction along current down + wall slide. Still no jump. Phase → `frictionLesson`. Return to R2 and walk east into R5.
 
-**surfaceWalk（R4 青色球）：** 沿当前 down 摩擦行走 + 滑墙，仍不能跳。阶段进入 `frictionLesson`。从 R4 右门走入 R5。
+**surfaceWalk（R4 青色球）：** 沿当前 down 摩擦行走 + 滑墙，仍不能跳。阶段进入 `frictionLesson`。回 R2 右走进入 R5。
 
-**reactionJump (orange orb in R5 at 2000, −80):** jump + wall-jump. Phase → `jumpLesson`. The R5 right ledge / window (local plat `(496, 264, 128, 16)`, opening y 200–280) is a **soft jump gate** — jump onto the ledge to reach R6; gravity-flipping also works.
+**reactionJump (orange orb in R5 at 2000, 220):** jump + wall-jump. Phase → `jumpLesson`. Soft jump gate `gate_R5_mustJump` world `(2120, 328, 160, 32)` — jump the floor gap toward R6; gravity-flipping also works.
 
-**reactionJump（R5 橙球）：** 跳跃 + 墙跳。阶段 `jumpLesson`。右侧高台+窗是跳跃软门。
+**reactionJump（R5 橙球）：** 跳跃 + 墙跳。阶段 `jumpLesson`。地板缺口是跳跃软门。
 
-**gravityField (purple orb in R6 at 2680, −160):** arbitrary down (45° steps, Shift+Q/E = 15°), change in air, `[` `]` tweaks magnitude. Camera still does **not** rotate. Phase → `fieldLesson`.
+**gravityField (purple orb in R6 at 2880, 120):** arbitrary down (45° steps, Shift+Q/E = 15°), change in air, `[` `]` tweaks magnitude. Camera still does **not** rotate. Phase stays `exploration` (dump stub).
 
 **gravityField（R6 紫球）：** 任意角 down（45° / Shift 15°），空中可改；`[` `]` 调 g。镜头不转。
 
@@ -45,13 +45,13 @@ The compact HUD (top-left / top-right) always shows **HP hearts (default 3/3)**,
 
 左上/右上常驻 HUD：HP 心、阶段、能力芯片（FALL / WALK / JUMP / FIELD）、当前 DOWN（小箭头或角度）、物品摘要。改重力方向时屏幕中央会闪一下 down 箭头（约 0.55s），镜头不转。F1 / M 打开时隐藏常驻 HUD。
 
-Explore R0 → R1 → R2 (horizontal; the room joins at x=640 and x=1280 are an open corridor — floor/ceiling slabs are merged so I-mode does not ghost-block on the seam), legacy **R3 under R1** at (640, 360), friction room **R4 above R2** at (1280, −360), jump room **R5** at (1920, −360), and field room **R6** at (2560, −360). M-map includes negative Y and, for **visited** rooms, pickup icons (G gravity / W walk / J jump / F field), gate marks (R2↑R4, R4→R5, R5→R6, R1↓R3), and a short role hint. Unexplored rooms stay dim and spoiler-free. Camera room-snaps (never rotates) into R4 through ceiling gate `gate_R2_to_R4` at (1520, 0, 80×16) — flip down to **up** while standing under the hole.
+Explore R0 → R1 → R2 (horizontal; the room joins at x=640 and x=1280 are an open corridor — floor/ceiling slabs are merged so I-mode does not ghost-block on the seam), legacy **R3 under R1** at (640, 360), friction room **R4 above R2** at (1280, −360), jump room **R5** at (1920, 0), and field room **R6** at (2560, 0) on the Y=0 corridor. M-map includes negative Y and, for **visited** rooms, pickup icons (G gravity / W walk / J jump / F field), gate marks (R2↑R4, R2→R5, R5 jump-gap, R5→R6, R1↓R3), and a short role hint. Unexplored rooms stay dim and spoiler-free. Camera room-snaps (never rotates) into R4 through ceiling gate `gate_R2_to_R4` at (1520, 0, 80×16) — flip down to **up** while standing under the hole.
 
-房间：R0→R1→R2 是打通的横走廊。旧 R3 在 R1 下方 (640, 360)。**R4** 在 R2 正上方 (1280, −360)，**R5** (1920, −360) 教跳，**R6** (2560, −360) 教任意角场。已访问房间的 M 地图会标出拾取、门和房间角色；未探索房间保持暗、不剧透。镜头不转。
+房间：R0→R1→R2 是打通的横走廊。旧 R3 在 R1 下方 (640, 360)。**R4** 在 R2 正上方 (1280, −360)，**R5** (1920, 0) 教跳，**R6** (2560, 0) 教任意角场。已访问房间的 M 地图会标出拾取、门和房间角色；未探索房间保持暗、不剧透。镜头不转。
 
-**Success path:** R0 float → yellow orb → gravityFall → reach R2 via cardinal gravity (fall right, catch the **short** stub on the right edge of the ceiling gate — not a mid-room wall) → set down = up → fall into R4 → teal orb → surfaceWalk → walk into R5 → orange orb → reactionJump → jump the right ledge/window → R6 purple orb → gravityField.
+**Success path:** R0 float → yellow orb → gravityFall → reach R2 via cardinal gravity (fall right, catch the **short** stub on the right edge of the ceiling gate — not a mid-room wall) → set down = up → fall into R4 → teal orb → surfaceWalk → return to R2 → walk east into R5 → orange orb `(2000, 220)` → reactionJump → jump the floor gap `(2120, 328, 160×32)` → R6 purple orb `(2880, 120)` → gravityField.
 
-**成功路径：** R0 漂浮 → 黄球 → gravityFall → 四向重力到 R2（向右落、在门洞右侧短立柱着地）→ down=up 落入 R4 → 青球 → surfaceWalk → 走入 R5 → 橙球 → 跳上右窗 → R6 紫球 → gravityField。
+**成功路径：** R0 漂浮 → 黄球 → gravityFall → 四向重力到 R2（向右落、在门洞右侧短立柱着地）→ down=up 落入 R4 → 青球 → surfaceWalk → 回 R2 右走入 R5 → 橙球 (2000,220) → 跳过地板缺口 → R6 紫球 (2880,120) → gravityField。
 
 ## Run locally / 本地运行
 
@@ -123,7 +123,7 @@ F1 调试打开时按 **E** 下载该 JSON（并尽量复制到剪贴板）。�
 ```json
 {
   "schemaVersion": 4,
-    "layoutRevision": 6,
+    "layoutRevision": 5,
   "game": "phymetroid",
   "logicalW": 640,
   "logicalH": 360,
@@ -144,18 +144,18 @@ F1 调试打开时按 **E** 下载该 JSON（并尽量复制到剪贴板）。�
 }
 ```
 
-**Compatibility / 兼容：** `schemaVersion` 4, `layoutRevision` 6. v1 `{ sections: { feel } }`, v2 player/progress, and v3 rooms-without-solids dumps still apply; missing sections keep current values. If `rooms[i].solids` is empty, the engine falls back to the v3 hardcoded layout in `worldSolids.js`. Pixel feel numbers are already 640×360 (WORLD_SCALE×2) — **do not re-scale**. Legacy `"gravity"` in `startingAbilities` / unlock lists maps to `"gravityFall"`. Feel debugger keys are unchanged. Older importers that only read `sections.feel` can ignore the new keys. A stored v4 dump with the old full-height `R2_doorframe`, R3 ceilings `0–200` / `440–640`, a sealed full-height `R4_wallR`, or missing R5/R6 rooms/orbs is migrated on boot (`layoutRevision` 6).
+**Compatibility / 兼容：** `schemaVersion` 4, `layoutRevision` 5. v1 `{ sections: { feel } }`, v2 player/progress, and v3 rooms-without-solids dumps still apply; missing sections keep current values. If `rooms[i].solids` is empty, the engine falls back to the v3 hardcoded layout in `worldSolids.js`. Pixel feel numbers are already 640×360 (WORLD_SCALE×2) — **do not re-scale**. Legacy `"gravity"` in `startingAbilities` / unlock lists maps to `"gravityFall"`. Feel debugger keys are unchanged. Older importers that only read `sections.feel` can ignore the new keys. A stored v4 dump with the old full-height `R2_doorframe`, R3 ceilings `0–200` / `440–640`, invented R5/R6 at `y=-360`, leftover `gate_R4_to_R5`, or missing R5/R6 rooms/orbs is migrated on boot (`layoutRevision` 5).
 
-Default Pages boot embeds `src/design/default-v4.json` (no manual paste). Solids default to `space: "local"` (world = room origin + xy). `space: "world"` is allowed for cross-room pieces. `R2_doorframe` is a short catch stub at the right edge of `gate_R2_to_R4` (local `(320, 264, 24, 64)` → world `(1600, 264)`), not a full-height wall. A stored or imported **full-height** `R2_doorframe` (the old world `(1496, 16, 24, 312)`) is migrated/stripped on load (`layoutRevision` 6); the engine also refuses to spawn any R2 solid with `h>=200` in x `[1480, 1620]`. `R4_wallR` is a lintel (`h: 200`) so the floor doorway into R5 stays open. `gapGateId` cuts a hole only when that gate has a `world` rect (`gate_R2_to_R4`); the engine also X-splits any solid that 2D-overlaps a gate opening. `gate_R1_to_R3` has no world — R1→R3 openings are the pits between `R1_floorA/B/C` (`160–240`, `400–480`). R3 ceiling openings match those pits only; the middle under `R1_floorB` is sealed (`R3_ceilM`). R3 left/right/bottom stay sealed — corridor join-X skip applies only on the R0–R2 Y band, so R3's walls at x=640/1280 are not treated as doorway holes. Shared R0|R1|R2 corridor walls stay omitted; the engine still merges abutting corridor slabs and skips join-seal ghost walls.
+Default Pages boot embeds `src/design/default-v4.json` (no manual paste). Solids default to `space: "local"` (world = room origin + xy). `space: "world"` is allowed for cross-room pieces. `R2_doorframe` is a short catch stub at the right edge of `gate_R2_to_R4` (local `(320, 264, 24, 64)` → world `(1600, 264)`), not a full-height wall. A stored or imported **full-height** `R2_doorframe` (the old world `(1496, 16, 24, 312)`) is migrated/stripped on load (`layoutRevision` 5); the engine also refuses to spawn any R2 solid with `h>=200` in x `[1480, 1620]`. `R4_wallR` stays full-height — R5 is **east of R2**, not east of R4. `gapGateId` cuts a hole only when that gate has a `world` rect (`gate_R2_to_R4`); the engine also X-splits any solid that 2D-overlaps a gate opening. `gate_R1_to_R3` has no world — R1→R3 openings are the pits between `R1_floorA/B/C` (`160–240`, `400–480`). R3 ceiling openings match those pits only; the middle under `R1_floorB` is sealed (`R3_ceilB`). R3 left/right/bottom stay sealed — corridor join-X skip applies only on the R0–R2–R5–R6 Y=0 band, so R3's walls at x=640/1280 are not treated as doorway holes. Shared corridor walls stay omitted; the engine still merges abutting corridor slabs and skips join-seal ghost walls.
 
-**New rooms / 新房间（layoutRevision 6）**
+**New rooms / 新房间（layoutRevision 5 dump）**
 
 | Room | World origin | Role | Pickup (world) |
 |---|---|---|---|
-| R5 | (1920, −360) | jumpLesson | `reactionJumpOrb` (2000, −80) |
-| R6 | (2560, −360) | fieldLesson | `gravityFieldOrb` (2680, −160) |
+| R5 | (1920, 0) | jumpLesson | `reactionJumpOrb` (2000, 220) |
+| R6 | (2560, 0) | fieldStub | `gravityFieldOrb` (2880, 120) |
 
-R5 jump gate: exit ledge local `(496, 264, 128, 16)` + window local y `200–280` (`gate_R5_to_R6` world `(2544, −160, 32, 80)`). R4→R5 doorway: `gate_R4_to_R5` world `(1904, −160, 32, 128)`.
+R5 jump soft-gate: `gate_R5_mustJump` world `(2120, 328, 160, 32)` (floor gap). R2→R5: `gate_R2_to_R5` (surfaceWalk). R5→R6: `gate_R5_to_R6` (reactionJump).
 
 v1 / v2 仍可导入；手感像素值已是 640×360，不要再乘 2。旧能力 id `gravity` 会映射成 `gravityFall`。
 
@@ -167,14 +167,14 @@ Keys are **camelCase**. Feel mapping: `moveSpeed` walk speed, `airControl` airbo
 
 **Import (minimal, no file picker):**
 
-- Boot: if `localStorage['phymetroid.designConfig']` is valid JSON, it is applied, then migrated (`layoutRevision` 6) so an old tall `R2_doorframe`, pre-pit R3 ceiling, sealed R4 door, or missing R5/R6 dump cannot stick.
+- Boot: if `localStorage['phymetroid.designConfig']` is valid JSON, it is applied, then migrated (`layoutRevision` 5) so an old tall `R2_doorframe`, pre-pit R3 ceiling, invented R5/R6 at `y=-360`, or missing R5/R6 dump cannot stick.
 - Console / bot: `window.__PHYMETROID_APPLY_DESIGN__(objOrJsonString)` or `applyDesignConfig(obj)` from `src/designConfig.js`.
 - `window.__PHYMETROID_GET_DESIGN__()` returns the current export payload.
 - `window.__PHYMETROID_GET_RUN__()` returns the live run snapshot (hp, abilities, items, phase, flags, visitedRooms, deaths, gravityDown).
 - `window.__PHYMETROID_DEBUG__` — `{ pos, warp, warpRoom, setDown, camRotation, toggleFeel, toggleMap, toggleAbility }` for console / bot checks. `setDown(axis, supported=true)` accepts cardinals or degrees (e.g. `45`). `camRotation()` stays `0`. Keyboard cheats (1–4 / Shift+1–7) only fire while the F1 panel is open.
 - `window.__PHYMETROID_TOGGLE_FULLSCREEN__()` toggles the Fullscreen API.
 
-导入先保持最小：启动读 localStorage（`layoutRevision` 6 会补上 R5/R6、打开 R4 右门，并改掉旧的通高 R2_doorframe / 旧 R3 顶开口）；程序用上面的全局函数。完整文件选择器留给以后的策划 bot。
+导入先保持最小：启动读 localStorage（`layoutRevision` 5 会补上 R5/R6、把误放在 y=-360 的 R5/R6 挪到 Y=0 走廊，并改掉旧的通高 R2_doorframe / 旧 R3 顶开口）；程序用上面的全局函数。完整文件选择器留给以后的策划 bot。
 
 Applying `{ sections: { player: { startingAbilities: ["gravity"] } } }` maps to `gravityFall`, unions it into the live run, and turns the gravity **vector** on (default down). `startingAbilities: ["gravityFall"]` is the v3 spelling. Changing `maxHp` clamps current HP.
 
@@ -206,7 +206,7 @@ This copies shared modules into `docs/src/` and rewrites Phaser imports to the U
 - Logical resolution **640×360**, `Scale.NONE` + integer zoom + leftover CSS fill + `pixelArt` / `roundPixels`
 - Live run state: `src/runState.js` (HP, abilities, gravity down, items, phase, flags)
 - Gravity vector: `src/gravity.js` (cardinal snap, Arcade accel, no camera rotate)
-- Rooms data: `src/rooms.js` (`WORLD_SCALE` / `px()`; R4/R5/R6 at y = −360)
+- Rooms data: `src/rooms.js` (`WORLD_SCALE` / `px()`; R4 at y = −360; R5/R6 at y = 0)
 
 ## Project layout / 目录
 

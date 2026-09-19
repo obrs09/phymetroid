@@ -30,7 +30,7 @@ export const UI_FONT_LG = `${px(10)}px`;
 /**
  * Default room AABBs (schema v3 fallback). v4 solids live on design rooms.
  * R3 stays under R1; R4 sits above R2 (neg Y).
- * R5 (jump) is east of R4; R6 (field) is east of R5.
+ * R5 (jump) and R6 (field) continue the Y=0 corridor east of R2.
  * @type {{ id: string, x: number, y: number, w: number, h: number, role?: string }[]}
  */
 export const ROOMS = [
@@ -39,8 +39,8 @@ export const ROOMS = [
   { id: 'R2', x: GAME_W * 2, y: 0, w: GAME_W, h: GAME_H, role: 'preFriction' },
   { id: 'R3', x: GAME_W, y: GAME_H, w: GAME_W, h: GAME_H, role: 'legacyPit' },
   { id: 'R4', x: GAME_W * 2, y: -GAME_H, w: GAME_W, h: GAME_H, role: 'frictionLesson' },
-  { id: 'R5', x: GAME_W * 3, y: -GAME_H, w: GAME_W, h: GAME_H, role: 'jumpLesson' },
-  { id: 'R6', x: GAME_W * 4, y: -GAME_H, w: GAME_W, h: GAME_H, role: 'fieldLesson' },
+  { id: 'R5', x: GAME_W * 3, y: 0, w: GAME_W, h: GAME_H, role: 'jumpLesson' },
+  { id: 'R6', x: GAME_W * 4, y: 0, w: GAME_W, h: GAME_H, role: 'fieldStub' },
 ];
 
 /** Full world AABB covering all rooms (minY may be negative — R4). */
