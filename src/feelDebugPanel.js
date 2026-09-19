@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import { GAME_W, GAME_H, UI_FONT_LG, UI_FONT_MD, UI_FONT_SM, px } from './rooms.js';
 import { addHudText } from './hudText.js';
 import {
+  ABILITY_UNLOCK_ORDER,
   FEEL_FIELDS,
   downloadDesignJson,
   formatFeelValue,
@@ -9,6 +10,7 @@ import {
   nudgeFeel,
   resetDesignToDefaults,
 } from './designConfig.js';
+import { hasAbility } from './runState.js';
 
 const ROW_H = px(10);
 const FIELD_TOP = px(40);
@@ -78,7 +80,14 @@ export class FeelDebugPanel {
       return { field, label, minus, plus };
     });
 
-    this.helpText = addHudText(scene, px(8), px(132), '', {
+    this.cheatText = addHudText(scene, px(8), px(128), '', {
+      fontSize: UI_FONT_SM,
+      color: '#ffe082',
+    }).setInteractive({ useHandCursor: true });
+    this.cheatText.on('pointerdown', (pointer) => this.onCheatClick(pointer));
+    this.root.add(this.cheatText);
+
+    this.helpText = addHudText(scene, px(8), px(148), '', {
       fontSize: UI_FONT_SM,
       color: '#78909c',
     });
@@ -154,6 +163,25 @@ export class FeelDebugPanel {
     }
     if (key === 'r' || key === 'R' || code === 'KeyR') {
       this.resetDefaults();
+      return;
+    }
+
+    const digit = /^Digit([0-9])$/.exec(code);
+    const num = digit ? Number(digit[1]) : NaN;
+    if (Number.isFinite(num)) {
+      if (shift && num >= 1 && num <= 7) {
+        const rooms = ['R0', 'R1', 'R2', 'R3', 'R4', 'R5', 'R6'];
+        this.scene.debugWarpRoom?.(rooms[num - 1]);
+        this.showToast(`Warp ${rooms[num - 1]}`);
+        return;
+      }
+      if (!shift && num >= 1 && num <= 4) {
+        const id = ABILITY_UNLOCK_ORDER[num - 1];
+        this.scene.debugToggleAbility?.(id);
+        this.refreshCheat();
+        this.showToast(`${hasAbility(id) ? 'Grant' : 'Revoke'} ${id}`);
+        return;
+      }
     }
   }
 
@@ -173,12 +201,41 @@ export class FeelDebugPanel {
   }
 
   refreshHelp() {
+    this.refreshCheat();
     this.helpText.setText(
       [
-        'UP/DOWN select   [ ]  -/=  LEFT/RIGHT adjust   Shift=big',
-        'E export JSON    R reset defaults    F1/` close    M map',
+        '1-4 toggle FALL/WALK/JUMP/FIELD   Shift+1-7 warp R0-R6',
+        'UP/DOWN select   [ ] -/= arrows adjust   Shift=big',
+        'E export JSON    R reset feel    F1/` close    M map',
       ].join('\n')
     );
+  }
+
+  refreshCheat() {
+    const chips = ABILITY_UNLOCK_ORDER.map((id, i) => {
+      const tag = ['FALL', 'WALK', 'JUMP', 'FIELD'][i] || id.slice(0, 4).toUpperCase();
+      return hasAbility(id) ? `[${tag}]` : tag.toLowerCase();
+    }).join(' ');
+    this.cheatText?.setText(`CHEAT  ${chips}   warp R0-R6 (Shift+1-7 or click)`);
+  }
+
+  onCheatClick(pointer) {
+    const x = pointer?.worldX ?? pointer?.x ?? 0;
+    // Left half of the cheat line toggles abilities by x band; right half cycles rooms.
+    if (x < 280) {
+      const slot = Math.min(3, Math.max(0, Math.floor((x - 50) / 50)));
+      const id = ABILITY_UNLOCK_ORDER[slot];
+      if (id) {
+        this.scene.debugToggleAbility?.(id);
+        this.refreshCheat();
+        this.showToast(`${hasAbility(id) ? 'Grant' : 'Revoke'} ${id}`);
+      }
+      return;
+    }
+    const rooms = ['R0', 'R1', 'R2', 'R3', 'R4', 'R5', 'R6'];
+    const slot = Math.min(6, Math.max(0, Math.floor((x - 280) / 36)));
+    this.scene.debugWarpRoom?.(rooms[slot]);
+    this.showToast(`Warp ${rooms[slot]}`);
   }
 
   refreshFields() {

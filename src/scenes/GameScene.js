@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { GAME_W, GAME_H, getWorldBounds, findRoomAt, UI_FONT_LG, UI_FONT_MD, UI_FONT_SM, px } from '../rooms.js';
+import { GAME_W, GAME_H, getWorldBounds, findRoomAt, findRoomById, UI_FONT_LG, UI_FONT_MD, UI_FONT_SM, px } from '../rooms.js';
 import { applyPlayerFeelLimits, createPlayer } from '../player.js';
 import {
   applyFeel,
@@ -45,6 +45,7 @@ import {
   respawn,
   setPhase,
   snapGravityDownToDefault,
+  toggleAbility,
   trySetGravityDown,
   unlockAbility,
 } from '../runState.js';
@@ -204,6 +205,8 @@ export class GameScene extends Phaser.Scene {
         },
         toggleFeel: () => this.toggleDebug(),
         toggleMap: () => this.toggleMap(),
+        toggleAbility: (id) => this.debugToggleAbility(id),
+        warpRoom: (id) => this.debugWarpRoom(id),
         flash: () => this.gravityFlash?.getState() ?? null,
         mapContents: () => this.describeVisibleMapContents(),
         solidsNear: (x, pad = 8) => this.solidsNear(x, pad),
@@ -483,10 +486,44 @@ export class GameScene extends Phaser.Scene {
       this.player.setVelocity(0, 0);
       this.physics.world.pause();
       this.debugPanel.refreshFields();
+      this.debugPanel.refreshCheat?.();
     } else if (this.physics.world.isPaused) {
       this.physics.world.resume();
     }
     this.syncOverlayHud();
+  }
+
+  debugToggleAbility(id) {
+    const had = hasAbility(id);
+    toggleAbility(id);
+    if (!had && hasAbility(id)) {
+      advancePhaseOnAbility(id);
+      if (id === ABILITY.GRAVITY_FALL || id === 'gravityFall') {
+        snapGravityDownToDefault();
+        this.flashGravityDown(getGravityDown());
+      }
+    }
+    this.syncGravityFromState();
+    return { id, has: hasAbility(id), ...getRunState() };
+  }
+
+  debugWarpRoom(id) {
+    const room = findRoomById(id, this.rooms());
+    if (!room) return null;
+    const SAFE = {
+      R0: { x: 200, y: 300 },
+      R1: { x: 960, y: 300 },
+      R2: { x: 1400, y: 300 },
+      R3: { x: 960, y: 650 },
+      R4: { x: 1400, y: -80 },
+      R5: { x: 2000, y: 300 },
+      R6: { x: 2700, y: 300 },
+    };
+    const pos = SAFE[room.id] || { x: room.x + room.w * 0.35, y: room.y + room.h - 60 };
+    this.player.setPosition(pos.x, pos.y);
+    this.player.setVelocity(0, 0);
+    this.snapCameraToRoom(room, true);
+    return { room: room.id, x: pos.x, y: pos.y };
   }
 
   refreshMapOverlay() {

@@ -189,6 +189,18 @@ export function unlockAbility(id) {
   return getRunState();
 }
 
+export function revokeAbility(id) {
+  const key = canonicalAbilityId(id);
+  if (!key || !run.abilities.has(key)) return getRunState();
+  run.abilities.delete(key);
+  notify();
+  return getRunState();
+}
+
+export function toggleAbility(id) {
+  return hasAbility(id) ? revokeAbility(id) : unlockAbility(id);
+}
+
 export function addItem(id, count = 1) {
   if (typeof id !== 'string' || !id) return getRunState();
   const n = Math.round(Number(count) || 0);

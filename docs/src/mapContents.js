@@ -45,7 +45,7 @@ function gateEdge(gate, room) {
   if (gate.kind === 'ceilingPassage') {
     return gate.fromRoomId === room.id ? 'top' : 'bottom';
   }
-  if (gate.kind === 'floorGap') {
+  if (gate.kind === 'floorGap' || gate.kind === 'jumpGap') {
     return gate.fromRoomId === room.id ? 'bottom' : 'top';
   }
   if (gate.kind === 'sidePassage') {
