@@ -2,19 +2,11 @@ import Phaser from './phaser-shim.js';
 import { GAME_W, GAME_H } from './rooms.js';
 import { GameScene } from './scenes/GameScene.js';
 import { computeIntegerZoom } from './scaleZoom.js';
-import { refreshHudTextResolution } from './hudText.js';
+import { applyViewport, bindViewport } from './viewport.js';
 import './designConfig.js';
+import './runState.js';
 
 function boot() {
-  // Keep F1 for the in-game feel debugger (avoid browser help overlay).
-  window.addEventListener(
-    'keydown',
-    (e) => {
-      if (e.key === 'F1') e.preventDefault();
-    },
-    true
-  );
-
   const zoom = computeIntegerZoom(GAME_W, GAME_H);
 
   const config = {
@@ -37,6 +29,7 @@ function boot() {
     },
     scale: {
       // Integer `zoom` above; NONE avoids fractional FIT blur.
+      // Leftover window space is CSS-scaled in viewport.js (pixelated).
       mode: Phaser.Scale.NONE,
       autoCenter: Phaser.Scale.CENTER_BOTH,
     },
@@ -44,17 +37,8 @@ function boot() {
   };
 
   const game = new Phaser.Game(config);
-  game.events.once(Phaser.Core.Events.READY, () => refreshHudTextResolution(zoom));
-
-  let lastZoom = zoom;
-  window.addEventListener('resize', () => {
-    const next = computeIntegerZoom(GAME_W, GAME_H);
-    if (next === lastZoom) return;
-    lastZoom = next;
-    game.scale.setZoom(next);
-    game.scale.refresh();
-    refreshHudTextResolution(next);
-  });
+  bindViewport(game);
+  game.events.once(Phaser.Core.Events.READY, () => applyViewport(game));
 }
 
 boot();

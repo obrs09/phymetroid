@@ -19,11 +19,14 @@
  * Persistence: localStorage key `phymetroid.designConfig` (optional boot load).
  * Programmatic import: window.__PHYMETROID_APPLY_DESIGN__(objOrJson)
  * or applyDesignConfig(obj). The future 策划 bot can write this same JSON.
+ *
+ * schemaVersion 2 adds sections.player + sections.progress. v1 feel-only
+ * dumps still import (unknown sections ignored; missing keys keep current).
  */
 
 import { GAME_H, GAME_W, WORLD_SCALE } from './rooms.js';
 
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
 export const GAME_ID = 'phymetroid';
 export const DESIGN_STORAGE_KEY = 'phymetroid.designConfig';
 
@@ -54,6 +57,26 @@ export const FEEL_FIELDS = Object.freeze([
 
 const FEEL_FIELD_BY_KEY = Object.fromEntries(FEEL_FIELDS.map((f) => [f.key, f]));
 
+/** Heart-based HP. 3/3 default — 数值策划 can raise maxHp without a combat rewrite. */
+export const PLAYER_DESIGN_DEFAULTS = Object.freeze({
+  maxHp: 3,
+  startingHp: 3,
+  startingAbilities: Object.freeze([]),
+  startingItems: Object.freeze({}),
+});
+
+export const PHASE_IDS = Object.freeze(['intro', 'exploration', 'boss']);
+
+export const PROGRESS_DESIGN_DEFAULTS = Object.freeze({
+  defaultPhase: 'intro',
+  phaseAfterGravity: 'exploration',
+  phaseLabels: Object.freeze({
+    intro: 'INTRO',
+    exploration: 'EXPLORE',
+    boss: 'BOSS',
+  }),
+});
+
 /** @type {Set<(feel: ReturnType<typeof getFeel>) => void>} */
 const listeners = new Set();
 
@@ -61,10 +84,33 @@ function cloneFeel(src = FEEL_DEFAULTS) {
   return { ...FEEL_DEFAULTS, ...src };
 }
 
-/** @type {{ schemaVersion: number, sections: { feel: Record<string, number> } }} */
+function clonePlayer(src = PLAYER_DESIGN_DEFAULTS) {
+  const base = {
+    maxHp: PLAYER_DESIGN_DEFAULTS.maxHp,
+    startingHp: PLAYER_DESIGN_DEFAULTS.startingHp,
+    startingAbilities: [...PLAYER_DESIGN_DEFAULTS.startingAbilities],
+    startingItems: { ...PLAYER_DESIGN_DEFAULTS.startingItems },
+  };
+  return sanitizePlayerPatch(base, src);
+}
+
+function cloneProgress(src = PROGRESS_DESIGN_DEFAULTS) {
+  const base = {
+    defaultPhase: PROGRESS_DESIGN_DEFAULTS.defaultPhase,
+    phaseAfterGravity: PROGRESS_DESIGN_DEFAULTS.phaseAfterGravity,
+    phaseLabels: { ...PROGRESS_DESIGN_DEFAULTS.phaseLabels },
+  };
+  return sanitizeProgressPatch(base, src);
+}
+
+/** @type {{ schemaVersion: number, sections: { feel: Record<string, number>, player: object, progress: object } }} */
 let state = {
   schemaVersion: SCHEMA_VERSION,
-  sections: { feel: cloneFeel() },
+  sections: {
+    feel: cloneFeel(),
+    player: clonePlayer(),
+    progress: cloneProgress(),
+  },
 };
 
 function clampFeelValue(key, raw) {
@@ -88,6 +134,81 @@ function sanitizeFeel(patch) {
     if (patch[key] !== undefined) next[key] = clampFeelValue(key, patch[key]);
   }
   return next;
+}
+
+function clampInt(raw, min, max, fallback) {
+  const n = Math.round(Number(raw));
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(max, Math.max(min, n));
+}
+
+function sanitizeAbilityList(list) {
+  if (!Array.isArray(list)) return null;
+  return [...new Set(list.filter((id) => typeof id === 'string' && id.trim()))].map((id) => id.trim());
+}
+
+function sanitizeItemMap(obj) {
+  if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return null;
+  const items = {};
+  for (const [id, count] of Object.entries(obj)) {
+    if (typeof id !== 'string' || !id.trim()) continue;
+    const n = Math.round(Number(count));
+    if (!Number.isFinite(n) || n <= 0) continue;
+    items[id.trim()] = n;
+  }
+  return items;
+}
+
+function sanitizePlayerPatch(base, patch) {
+  const next = {
+    maxHp: base.maxHp,
+    startingHp: base.startingHp,
+    startingAbilities: [...base.startingAbilities],
+    startingItems: { ...base.startingItems },
+  };
+  if (!patch || typeof patch !== 'object') return next;
+  if (patch.maxHp !== undefined) next.maxHp = clampInt(patch.maxHp, 1, 20, next.maxHp);
+  if (patch.startingHp !== undefined) {
+    next.startingHp = clampInt(patch.startingHp, 0, next.maxHp, next.startingHp);
+  } else {
+    next.startingHp = Math.min(next.startingHp, next.maxHp);
+  }
+  const abilities = sanitizeAbilityList(patch.startingAbilities);
+  if (abilities) next.startingAbilities = abilities;
+  const items = sanitizeItemMap(patch.startingItems);
+  if (items) next.startingItems = items;
+  return next;
+}
+
+function sanitizePlayer(patch) {
+  return sanitizePlayerPatch(state.sections.player, patch);
+}
+
+function sanitizeProgressPatch(base, patch) {
+  const next = {
+    defaultPhase: base.defaultPhase,
+    phaseAfterGravity: base.phaseAfterGravity,
+    phaseLabels: { ...base.phaseLabels },
+  };
+  if (!patch || typeof patch !== 'object') return next;
+  if (typeof patch.defaultPhase === 'string' && patch.defaultPhase.trim()) {
+    next.defaultPhase = patch.defaultPhase.trim();
+  }
+  if (typeof patch.phaseAfterGravity === 'string' && patch.phaseAfterGravity.trim()) {
+    next.phaseAfterGravity = patch.phaseAfterGravity.trim();
+  }
+  if (patch.phaseLabels && typeof patch.phaseLabels === 'object') {
+    for (const [key, value] of Object.entries(patch.phaseLabels)) {
+      if (typeof key === 'string' && key && typeof value === 'string' && value.trim()) {
+        next.phaseLabels[key] = value.trim();
+      }
+    }
+  }
+  return next;
+}
+
+function sanitizeProgress(patch) {
+  return sanitizeProgressPatch(state.sections.progress, patch);
 }
 
 function notify() {
@@ -120,7 +241,11 @@ function persist() {
         schemaVersion: SCHEMA_VERSION,
         logicalW: GAME_W,
         logicalH: GAME_H,
-        sections: { feel: getFeel() },
+        sections: {
+          feel: getFeel(),
+          player: getPlayerDesign(),
+          progress: getProgressDesign(),
+        },
       })
     );
   } catch {
@@ -146,6 +271,14 @@ function loadFromStorage() {
     if (feel && typeof feel === 'object') {
       state.sections.feel = sanitizeFeel(feel);
     }
+    const player = obj?.sections?.player ?? obj?.player;
+    if (player && typeof player === 'object') {
+      state.sections.player = sanitizePlayer(player);
+    }
+    const progress = obj?.sections?.progress ?? obj?.progress;
+    if (progress && typeof progress === 'object') {
+      state.sections.progress = sanitizeProgress(progress);
+    }
   } catch {
     // corrupt payload — keep defaults
   }
@@ -156,6 +289,27 @@ loadFromStorage();
 /** Live feel snapshot (copy). */
 export function getFeel() {
   return cloneFeel(state.sections.feel);
+}
+
+/** Player design defaults (copy) — not live HP / unlocked abilities. */
+export function getPlayerDesign() {
+  const p = state.sections.player;
+  return {
+    maxHp: p.maxHp,
+    startingHp: p.startingHp,
+    startingAbilities: [...p.startingAbilities],
+    startingItems: { ...p.startingItems },
+  };
+}
+
+/** Progress design defaults (copy) — not live phase / flags. */
+export function getProgressDesign() {
+  const p = state.sections.progress;
+  return {
+    defaultPhase: p.defaultPhase,
+    phaseAfterGravity: p.phaseAfterGravity,
+    phaseLabels: { ...p.phaseLabels },
+  };
 }
 
 /**
@@ -172,7 +326,11 @@ export function applyFeel(patch) {
 export function resetDesignToDefaults() {
   state = {
     schemaVersion: SCHEMA_VERSION,
-    sections: { feel: cloneFeel() },
+    sections: {
+      feel: cloneFeel(),
+      player: clonePlayer(),
+      progress: cloneProgress(),
+    },
   };
   const ls = storage();
   try {
@@ -224,6 +382,8 @@ export function formatDesignStamp(date = new Date()) {
 /** Bot-friendly export payload (stable key order). */
 export function buildExportPayload(date = new Date()) {
   const feel = getFeel();
+  const player = getPlayerDesign();
+  const progress = getProgressDesign();
   return {
     schemaVersion: SCHEMA_VERSION,
     game: GAME_ID,
@@ -240,13 +400,25 @@ export function buildExportPayload(date = new Date()) {
         jumpBufferMs: feel.jumpBufferMs,
         floatNudge: feel.floatNudge,
       },
+      player: {
+        maxHp: player.maxHp,
+        startingHp: player.startingHp,
+        startingAbilities: [...player.startingAbilities],
+        startingItems: { ...player.startingItems },
+      },
+      progress: {
+        defaultPhase: progress.defaultPhase,
+        phaseAfterGravity: progress.phaseAfterGravity,
+        phaseLabels: { ...progress.phaseLabels },
+      },
     },
   };
 }
 
 /**
- * Apply a full dump or a `{ sections: { feel } }` / `{ feel }` object.
- * Unknown keys are ignored; missing feel keys keep current values.
+ * Apply a full dump or `{ sections: { feel, player, progress } }`.
+ * Unknown keys are ignored; missing sections / keys keep current values.
+ * v1 feel-only JSON is valid. Player/progress patches merge when present.
  * @param {object|string} input
  */
 export function applyDesignConfig(input) {
@@ -255,7 +427,19 @@ export function applyDesignConfig(input) {
     throw new Error('design config must be an object or JSON string');
   }
   const feel = obj.sections?.feel ?? obj.feel;
-  if (feel && typeof feel === 'object') applyFeel(feel);
+  if (feel && typeof feel === 'object') {
+    state.sections.feel = sanitizeFeel(feel);
+  }
+  const player = obj.sections?.player ?? obj.player;
+  if (player && typeof player === 'object') {
+    state.sections.player = sanitizePlayer(player);
+  }
+  const progress = obj.sections?.progress ?? obj.progress;
+  if (progress && typeof progress === 'object') {
+    state.sections.progress = sanitizeProgress(progress);
+  }
+  persist();
+  notify();
   return buildExportPayload();
 }
 

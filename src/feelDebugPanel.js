@@ -194,7 +194,7 @@ export class FeelDebugPanel {
   }
 
   /**
-   * @param {{ room?: string, gravityOn?: boolean, grounded?: boolean, coyote?: number, x?: number, y?: number }} info
+   * @param {{ room?: string, gravityOn?: boolean, grounded?: boolean, coyote?: number, x?: number, y?: number, hp?: number, maxHp?: number, phase?: string, deaths?: number }} info
    */
   refreshStatus(info) {
     const room = info.room ?? '?';
@@ -203,9 +203,13 @@ export class FeelDebugPanel {
     const coy = info.coyote ?? 0;
     const x = Math.round(info.x ?? 0);
     const y = Math.round(info.y ?? 0);
+    const hp = info.hp ?? '?';
+    const maxHp = info.maxHp ?? '?';
+    const phase = info.phase ?? '?';
+    const deaths = info.deaths ?? 0;
     this.statusText.setText(
-      `room ${room}  grav ${grav}  gnd ${gnd}  coy ${coy}\n` +
-        `pos ${x},${y}  physics PAUSED`
+      `room ${room}  grav ${grav}  gnd ${gnd}  coy ${coy}  hp ${hp}/${maxHp}\n` +
+        `pos ${x},${y}  phase ${phase}  deaths ${deaths}  physics PAUSED`
     );
     if (this.scene.time.now >= this.toastUntil) this.toastText.setText('');
   }
