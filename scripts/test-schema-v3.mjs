@@ -36,6 +36,9 @@ import {
   corridorJoinXs,
   countRoomSourceSolids,
   listWorldSolidRects,
+  pointInRect,
+  punchOverlappingGateRects,
+  rectsOverlap,
   solidToWorldRect,
   splitRectAroundGate,
 } from '../src/worldSolids.js';
@@ -136,28 +139,68 @@ section('v4 rooms[].solids source counts + local/world math', () => {
   assert.deepEqual(solidToWorldRect(r4, floor), { x: 1280, y: -32, w: 640, h: 32 });
   const r2 = rooms.find((r) => r.id === 'R2');
   const door = r2.solids.find((s) => s.id === 'R2_doorframe');
-  assert.equal(door.space, 'world');
-  assert.deepEqual(solidToWorldRect(r2, door), { x: 1496, y: 16, w: 24, h: 312 });
+  assert.equal(door.space, 'local');
+  assert.deepEqual(solidToWorldRect(r2, door), { x: 1600, y: 264, w: 24, h: 64 });
+  assert.ok(door.h <= 80, 'doorframe is a short catch stub, not a mid-room wall');
   assert.equal(r2.solids.find((s) => s.id === 'R2_ceil').gapGateId, 'gate_R2_to_R4');
   assert.equal(floor.gapGateId, 'gate_R2_to_R4');
 });
 
-section('gapGateId cuts R2 ceiling / R4 floor at gate_R2_to_R4', () => {
-  const rects = listWorldSolidRects(getRooms(), getGates());
-  const covers = (x, y) => rects.some((r) => x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h);
-  assert.equal(covers(1560, 8), false, 'R2 ceiling hole at gate');
-  assert.equal(covers(1560, -16), false, 'R4 floor hole at gate');
+section('gapGateId cuts R2 ceiling / R4 floor; doorframe misses the opening', () => {
+  const rooms = getRooms();
+  const gates = getGates();
+  const gate = gates.find((g) => g.id === 'gate_R2_to_R4').world;
+  const rects = listWorldSolidRects(rooms, gates);
+  const covers = (x, y) => rects.some((r) => pointInRect(r, x, y));
+  for (let x = gate.x + 4; x < gate.x + gate.w; x += 8) {
+    for (let y = gate.y + 2; y < gate.y + gate.h; y += 4) {
+      assert.equal(covers(x, y), false, `solid covers gate interior (${x},${y})`);
+    }
+    assert.equal(covers(x, -16), false, `solid covers R4 floor hole (${x},-16)`);
+  }
   assert.equal(covers(1400, 8), true, 'R2 ceiling left remains');
   assert.equal(covers(1700, 8), true, 'R2 ceiling right remains');
   assert.equal(covers(1400, -16), true, 'R4 floor left remains');
-  const door = rects.find((r) => r.tag === 'doorframe' || (r.x === 1496 && r.w === 24 && r.h === 312));
+  const door = rects.find((r) => r.tag === 'doorframe');
   assert.ok(door, 'R2_doorframe world rect present');
-  assert.deepEqual({ x: door.x, y: door.y, w: door.w, h: door.h }, { x: 1496, y: 16, w: 24, h: 312 });
+  assert.deepEqual({ x: door.x, y: door.y, w: door.w, h: door.h }, { x: 1600, y: 264, w: 24, h: 64 });
+  assert.equal(rectsOverlap(door, gate), false, 'doorframe must not cover the gate opening');
+  const midR2Walls = rects.filter(
+    (r) =>
+      r.h > 160 &&
+      r.y < 40 &&
+      r.y + r.h > 280 &&
+      r.x < 1600 &&
+      r.x + r.w > 1320 &&
+      r.x + r.w < 1900
+  );
+  assert.equal(midR2Walls.length, 0, `full-height mid-R2 blocker: ${JSON.stringify(midR2Walls)}`);
+  // Floor-level I-mode AABB (24×32) can travel from the R2 entrance to under the hole.
+  const playerW = 24;
+  const playerH = 32;
+  const floorY = 312;
+  const hitsBlocking = (x) =>
+    rects.some((r) => {
+      if (r.tag === 'floor' || r.tag === 'ceiling') return false;
+      return rectsOverlap(r, { x: x - playerW / 2, y: floorY - playerH / 2, w: playerW, h: playerH });
+    });
+  for (let x = 1320; x <= 1564; x += 4) {
+    assert.equal(hitsBlocking(x), false, `floor approach blocked at x=${x}`);
+  }
   const split = splitRectAroundGate({ x: 1280, y: 0, w: 640, h: 16 }, { x: 1520, y: 0, w: 80, h: 16 });
   assert.deepEqual(split, [
     { x: 1280, y: 0, w: 240, h: 16 },
     { x: 1600, y: 0, w: 320, h: 16 },
   ]);
+  const punched = punchOverlappingGateRects(
+    [{ x: 1496, y: 0, w: 48, h: 80, tag: 'doorframe' }],
+    [{ world: gate }]
+  );
+  assert.equal(
+    punched.some((r) => pointInRect(r, 1560, 8)),
+    false,
+    '2D overlap punch must open a doorframe that covers the gate'
+  );
 });
 
 section('v3 rooms without solids fall back to hardcode', () => {
@@ -226,10 +269,11 @@ section('data-driven key slabs match v3 hardcode', () => {
     tag: r.tag,
   }));
   const key = (list, pred) => list.find(pred);
-  const doorD = key(data, (r) => r.x === 1496 && r.w === 24 && r.h === 312);
-  const doorH = key(hard, (r) => r.x === 1496 && r.w === 24 && r.h === 312);
+  const doorD = key(data, (r) => r.tag === 'doorframe');
+  const doorH = key(hard, (r) => r.tag === 'doorframe');
   assert.ok(doorD && doorH);
   assert.deepEqual(doorD, doorH);
+  assert.deepEqual({ x: doorD.x, y: doorD.y, w: doorD.w, h: doorD.h }, { x: 1600, y: 264, w: 24, h: 64 });
   const covers = (list, x, y) => list.some((r) => x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h);
   assert.equal(covers(data, 1560, 8), covers(hard, 1560, 8));
   assert.equal(covers(data, 1560, -16), covers(hard, 1560, -16));

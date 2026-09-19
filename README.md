@@ -38,9 +38,9 @@ Explore R0 → R1 → R2 (horizontal; the room joins at x=640 and x=1280 are an 
 
 房间：R0→R1→R2 是打通的横走廊（房间接缝处地板/天花板并成一块，避免 Arcade 把缝当成墙）。旧 R3 仍在 R1 下方 (640, 360)，新摩擦房 **R4 在 R2 正上方** (1280, −360)。已访问房间的 M 地图会标出拾取、门和房间角色；未探索房间保持暗、不剧透。R2 把 down 翻成 up，从天花板门落入 R4。镜头不转。
 
-**Success path:** R0 float → yellow orb → gravityFall → reach R2 via cardinal gravity (fall right, catch the pillar under the gate, flip down) → set down = up → fall into R4 → teal orb → surfaceWalk → walk/slide.
+**Success path:** R0 float → yellow orb → gravityFall → reach R2 via cardinal gravity (fall right, catch the **short** stub on the right edge of the ceiling gate — not a mid-room wall) → set down = up → fall into R4 → teal orb → surfaceWalk → walk/slide.
 
-**成功路径：** R0 漂浮 → 黄球 → gravityFall → 四向重力到 R2（向右落、在门下立柱着地、再翻 down）→ down=up 落入 R4 → 青球 → surfaceWalk → 走/滑。
+**成功路径：** R0 漂浮 → 黄球 → gravityFall → 四向重力到 R2（向右落、在门洞右侧短立柱着地，不是房间中间的通高墙）→ down=up 落入 R4 → 青球 → surfaceWalk → 走/滑。
 
 ## Run locally / 本地运行
 
@@ -134,7 +134,7 @@ F1 调试打开时按 **E** 下载该 JSON（并尽量复制到剪贴板）。�
 
 **Compatibility / 兼容：** `schemaVersion` 4. v1 `{ sections: { feel } }`, v2 player/progress, and v3 rooms-without-solids dumps still apply; missing sections keep current values. If `rooms[i].solids` is empty, the engine falls back to the v3 hardcoded layout in `worldSolids.js`. Pixel feel numbers are already 640×360 (WORLD_SCALE×2) — **do not re-scale**. Legacy `"gravity"` in `startingAbilities` / unlock lists maps to `"gravityFall"`. Feel debugger keys are unchanged. Older importers that only read `sections.feel` can ignore the new keys.
 
-Default Pages boot embeds `src/design/default-v4.json` (no manual paste). Solids default to `space: "local"` (world = room origin + xy). `space: "world"` is used as-is (R2 doorframe). `gapGateId` cuts a hole only when that gate has a `world` rect (`gate_R2_to_R4`). `gate_R1_to_R3` has no world — R1→R3 openings are the pits between `R1_floorA/B/C`. Shared R0|R1|R2 corridor walls stay omitted; the engine still merges abutting corridor slabs and skips join-seal ghost walls.
+Default Pages boot embeds `src/design/default-v4.json` (no manual paste). Solids default to `space: "local"` (world = room origin + xy). `space: "world"` is allowed for cross-room pieces. `R2_doorframe` is a short catch stub at the right edge of `gate_R2_to_R4` (local `(320, 264, 24, 64)` → world `(1600, 264)`), not a full-height wall. `gapGateId` cuts a hole only when that gate has a `world` rect (`gate_R2_to_R4`); the engine also X-splits any solid that 2D-overlaps a gate opening. `gate_R1_to_R3` has no world — R1→R3 openings are the pits between `R1_floorA/B/C`. Shared R0|R1|R2 corridor walls stay omitted; the engine still merges abutting corridor slabs and skips join-seal ghost walls.
 
 v1 / v2 仍可导入；手感像素值已是 640×360，不要再乘 2。旧能力 id `gravity` 会映射成 `gravityFall`。
 
