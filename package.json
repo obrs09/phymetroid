@@ -7,7 +7,9 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "docs:sync": "node scripts/sync-docs.mjs"
+    "docs:sync": "node scripts/sync-docs.mjs",
+    "test:schema": "node scripts/test-schema-v3.mjs",
+    "test:browser": "node scripts/browser-verify-v3.mjs"
   },
   "dependencies": {
     "phaser": "^3.80.0"

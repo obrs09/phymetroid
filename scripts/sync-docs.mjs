@@ -25,6 +25,8 @@ function copyAndPatch(rel, fromPhaser, toPhaser) {
 
 copyAndPatch('rooms.js', '', ''); // identical
 copyAndPatch('scaleZoom.js', '', '');
+copyAndPatch('gravity.js', '', '');
+copyAndPatch('worldSolids.js', '', '');
 copyAndPatch('designConfig.js', '', '');
 copyAndPatch('runState.js', '', '');
 copyAndPatch('viewport.js', '', '');

@@ -2,31 +2,34 @@
  * Central mutable design config for live feel tweaks + 策划 bot dumps.
  *
  * Export JSON (camelCase) ↔ in-game labels:
- *   moveSpeed          MOVE SPEED     walk speed after gravity
+ *   moveSpeed          MOVE SPEED     walk speed after surfaceWalk
  *   airControl         AIR CONTROL    fraction of moveSpeed while airborne
- *   jumpVelocity       JUMP VEL       upward impulse (negative = up)
- *   jumpCutMultiplier  JUMP CUT       keep this * vy on early jump release
- *   gravityY           GRAVITY Y      Arcade world gravity.y after pickup
- *   maxFallSpeed       MAX FALL       player max velocity.y
+ *   jumpVelocity       JUMP VEL       impulse against gravity down (negative = away)
+ *   jumpCutMultiplier  JUMP CUT       keep this * along-gravity vel on early release
+ *   gravityY           GRAVITY Y      gravity *vector magnitude* (not camera)
+ *   maxFallSpeed       MAX FALL       max speed along current down
  *   coyoteMs           COYOTE MS      grounded grace after leaving a ledge
  *   jumpBufferMs       BUFFER MS      jump-press remember window
  *   floatNudge         FLOAT NUDGE    pre-gravity A/D air nudge
  *
  * Pixel velocities (moveSpeed, jumpVelocity, gravityY, maxFallSpeed, floatNudge)
- * are WORLD_SCALE × the original 320×180 defaults so hang time and room-cross
- * time match after the 640×360 layout scale. Time / ratio keys are unchanged.
+ * are already WORLD_SCALE × the original 320×180 defaults. Do **not** re-scale
+ * v3 dumps. Time / ratio keys are unchanged. Ability tiers live in
+ * sections.abilities / runState — never mixed into feel numbers.
  *
  * Persistence: localStorage key `phymetroid.designConfig` (optional boot load).
  * Programmatic import: window.__PHYMETROID_APPLY_DESIGN__(objOrJson)
  * or applyDesignConfig(obj). The future 策划 bot can write this same JSON.
  *
- * schemaVersion 2 adds sections.player + sections.progress. v1 feel-only
- * dumps still import (unknown sections ignored; missing keys keep current).
+ * schemaVersion 3 adds gravity, abilities, rooms, pickups, gates, and
+ * progress.abilityPhases / pathIntent. v1 feel-only and v2 player/progress
+ * dumps still import. Legacy ability id `gravity` maps to `gravityFall`.
  */
 
-import { GAME_H, GAME_W, WORLD_SCALE } from './rooms.js';
+import { GAME_H, GAME_W, ROOMS, WORLD_SCALE } from './rooms.js';
+import { CARDINAL_AXES, isCardinal, normalizeDown } from './gravity.js';
 
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 export const GAME_ID = 'phymetroid';
 export const DESIGN_STORAGE_KEY = 'phymetroid.designConfig';
 
@@ -42,7 +45,7 @@ export const FEEL_DEFAULTS = Object.freeze({
   floatNudge: 28 * WORLD_SCALE,
 });
 
-/** Field metadata for the F1 debugger (steps, clamps, labels). */
+/** Field metadata for the F1 debugger (steps, clamps, labels). Feel keys unchanged. */
 export const FEEL_FIELDS = Object.freeze([
   { key: 'moveSpeed', label: 'MOVE SPEED', step: 5 * WORLD_SCALE, shiftStep: 20 * WORLD_SCALE, min: 10 * WORLD_SCALE, max: 400 * WORLD_SCALE, decimals: 0 },
   { key: 'airControl', label: 'AIR CONTROL', step: 0.05, shiftStep: 0.15, min: 0, max: 1.5, decimals: 2 },
@@ -57,15 +60,123 @@ export const FEEL_FIELDS = Object.freeze([
 
 const FEEL_FIELD_BY_KEY = Object.fromEntries(FEEL_FIELDS.map((f) => [f.key, f]));
 
+export const ABILITY_ID = Object.freeze({
+  GRAVITY_FALL: 'gravityFall',
+  SURFACE_WALK: 'surfaceWalk',
+  REACTION_JUMP: 'reactionJump',
+  GRAVITY_FIELD: 'gravityField',
+});
+
+export const ABILITY_UNLOCK_ORDER = Object.freeze([
+  ABILITY_ID.GRAVITY_FALL,
+  ABILITY_ID.SURFACE_WALK,
+  ABILITY_ID.REACTION_JUMP,
+  ABILITY_ID.GRAVITY_FIELD,
+]);
+
+const LEGACY_ABILITY_MAP = Object.freeze({
+  gravity: ABILITY_ID.GRAVITY_FALL,
+});
+
+export function canonicalAbilityId(id) {
+  if (typeof id !== 'string') return '';
+  const trimmed = id.trim();
+  if (!trimmed) return '';
+  return LEGACY_ABILITY_MAP[trimmed] ?? trimmed;
+}
+
+export const GRAVITY_DESIGN_DEFAULTS = Object.freeze({
+  rotateVectorOnly: true,
+  rotateCamera: false,
+  affects: 'allNonFixedBodies',
+  fixedBodiesTag: 'fixed',
+  cardinalOnlyUntil: ABILITY_ID.GRAVITY_FIELD,
+  cardinalAxes: CARDINAL_AXES,
+  snapDownToNearestAxis: true,
+  defaultDown: 'down',
+  magnitudeKey: 'feel.gravityY',
+  airLocksDirection: true,
+  airLockRequiresAbility: ABILITY_ID.GRAVITY_FALL,
+  changeDirectionRequires: Object.freeze({
+    groundedOrSupported: true,
+    exceptAbility: ABILITY_ID.GRAVITY_FIELD,
+  }),
+});
+
+export const ABILITY_DESIGN_DEFAULTS = Object.freeze({
+  [ABILITY_ID.GRAVITY_FALL]: Object.freeze({
+    id: ABILITY_ID.GRAVITY_FALL,
+    tier: 'I',
+    legacyIds: Object.freeze(['gravity']),
+    label: 'GRAVITY FALL',
+    grants: Object.freeze({
+      hasGravity: true,
+      canWalk: false,
+      canJump: false,
+      canWallSlide: false,
+      canWallJump: false,
+      canCrawlCeiling: false,
+      canFly: false,
+      gravityDirections: 'cardinal',
+      snapDownOnPickup: true,
+      bodyMode: 'falling',
+    }),
+  }),
+  [ABILITY_ID.SURFACE_WALK]: Object.freeze({
+    id: ABILITY_ID.SURFACE_WALK,
+    tier: 'II',
+    label: 'SURFACE WALK',
+    requires: Object.freeze([ABILITY_ID.GRAVITY_FALL]),
+    grants: Object.freeze({
+      canWalk: true,
+      hasFriction: true,
+      canWallSlide: true,
+      canJump: false,
+      canWallJump: false,
+      gravityDirections: 'cardinal',
+    }),
+  }),
+  [ABILITY_ID.REACTION_JUMP]: Object.freeze({
+    id: ABILITY_ID.REACTION_JUMP,
+    tier: 'II+',
+    label: 'REACTION JUMP',
+    requires: Object.freeze([ABILITY_ID.SURFACE_WALK]),
+    grants: Object.freeze({
+      canJump: true,
+      canWallJump: true,
+      usesFeelJump: true,
+    }),
+  }),
+  [ABILITY_ID.GRAVITY_FIELD]: Object.freeze({
+    id: ABILITY_ID.GRAVITY_FIELD,
+    tier: 'III',
+    label: 'GRAVITY FIELD',
+    requires: Object.freeze([ABILITY_ID.REACTION_JUMP]),
+    grants: Object.freeze({
+      gravityDirections: 'arbitrary',
+      toggleAnytime: true,
+      adjustableMagnitude: true,
+      airLocksDirection: false,
+    }),
+  }),
+});
+
 /** Heart-based HP. 3/3 default — 数值策划 can raise maxHp without a combat rewrite. */
 export const PLAYER_DESIGN_DEFAULTS = Object.freeze({
   maxHp: 3,
   startingHp: 3,
   startingAbilities: Object.freeze([]),
   startingItems: Object.freeze({}),
+  abilityUnlockOrder: ABILITY_UNLOCK_ORDER,
 });
 
-export const PHASE_IDS = Object.freeze(['intro', 'exploration', 'boss']);
+export const PHASE_IDS = Object.freeze([
+  'intro',
+  'exploration',
+  'frictionLesson',
+  'jumpLesson',
+  'boss',
+]);
 
 export const PROGRESS_DESIGN_DEFAULTS = Object.freeze({
   defaultPhase: 'intro',
@@ -73,8 +184,84 @@ export const PROGRESS_DESIGN_DEFAULTS = Object.freeze({
   phaseLabels: Object.freeze({
     intro: 'INTRO',
     exploration: 'EXPLORE',
+    frictionLesson: 'FRICTION',
+    jumpLesson: 'JUMP',
     boss: 'BOSS',
   }),
+  abilityPhases: Object.freeze({
+    [ABILITY_ID.GRAVITY_FALL]: 'exploration',
+    [ABILITY_ID.SURFACE_WALK]: 'frictionLesson',
+    [ABILITY_ID.REACTION_JUMP]: 'jumpLesson',
+    [ABILITY_ID.GRAVITY_FIELD]: 'exploration',
+  }),
+  pathIntent: Object.freeze({
+    zh: 'R0 漂浮 → 黄球 → gravityFall → 用四向重力到 R2 → 把 down 翻成 up → 落入 R4 → surfaceWalk → 走/滑。',
+    en: 'R0 float → orb → gravityFall → reach R2 via cardinal gravity → flip down to up → fall into R4 → surfaceWalk → walk/slide.',
+  }),
+});
+
+export const PICKUP_DESIGN_DEFAULTS = Object.freeze([
+  Object.freeze({
+    id: 'gravityOrb',
+    ability: ABILITY_ID.GRAVITY_FALL,
+    roomId: 'R0',
+    x: 256,
+    y: 136,
+    requires: Object.freeze([]),
+    onCollect: Object.freeze({
+      unlockAbility: ABILITY_ID.GRAVITY_FALL,
+      addItem: Object.freeze({ gravityOrb: 1 }),
+      advancePhase: 'exploration',
+      statusBanner: 'GRAVITY ON',
+    }),
+  }),
+  Object.freeze({
+    id: 'surfaceWalkOrb',
+    ability: ABILITY_ID.SURFACE_WALK,
+    roomId: 'R4',
+    x: 1320,
+    y: -320,
+    requires: Object.freeze([ABILITY_ID.GRAVITY_FALL]),
+    onCollect: Object.freeze({
+      unlockAbility: ABILITY_ID.SURFACE_WALK,
+      addItem: Object.freeze({ frictionBoots: 1 }),
+      advancePhase: 'frictionLesson',
+      statusBanner: 'SURFACE WALK',
+    }),
+  }),
+]);
+
+export const GATE_DESIGN_DEFAULTS = Object.freeze([
+  Object.freeze({
+    id: 'gate_R2_to_R4',
+    fromRoomId: 'R2',
+    toRoomId: 'R4',
+    kind: 'ceilingPassage',
+    requireAbility: ABILITY_ID.GRAVITY_FALL,
+    world: Object.freeze({ x: 1520, y: 0, w: 80, h: 16 }),
+  }),
+  Object.freeze({
+    id: 'gate_R1_to_R3',
+    fromRoomId: 'R1',
+    toRoomId: 'R3',
+    kind: 'floorGap',
+    requireAbility: ABILITY_ID.GRAVITY_FALL,
+  }),
+]);
+
+export const INTENT_DEFAULTS = Object.freeze({
+  zh: '只转重力矢量、不转镜头。I 落体教学 → II 摩擦行走（R4）→ reactionJump → III 任意角重力场。旧 R3 保留在 R1 下方；新摩擦房为 R4（R2 正上方）。',
+  en: 'Rotate gravity vector only; camera stays axis-aligned. Teach fall body (I) before friction walk (II in R4). Keep legacy R3 under R1; new friction room is R4 above R2.',
+});
+
+export const COMPAT_DEFAULTS = Object.freeze({
+  fromSchemaVersion: 2,
+  notes: Object.freeze([
+    'v1/v2 feel + player(maxHp/starting*) + progress(phase*) keys still valid; unknown sections ignored by older importers.',
+    "Ability id rename: runtime ABILITY.GRAVITY / 'gravity' → 'gravityFall'. Map on import for old saves.",
+    'Pixel feel numbers are already WORLD_SCALE×2 (640×360). Do not re-scale v3 dumps.',
+    'New sections in v3: gravity, abilities, rooms, pickups, gates. progress gains abilityPhases + pathIntent.',
+  ]),
 });
 
 /** @type {Set<(feel: ReturnType<typeof getFeel>) => void>} */
@@ -90,6 +277,7 @@ function clonePlayer(src = PLAYER_DESIGN_DEFAULTS) {
     startingHp: PLAYER_DESIGN_DEFAULTS.startingHp,
     startingAbilities: [...PLAYER_DESIGN_DEFAULTS.startingAbilities],
     startingItems: { ...PLAYER_DESIGN_DEFAULTS.startingItems },
+    abilityUnlockOrder: [...PLAYER_DESIGN_DEFAULTS.abilityUnlockOrder],
   };
   return sanitizePlayerPatch(base, src);
 }
@@ -99,17 +287,75 @@ function cloneProgress(src = PROGRESS_DESIGN_DEFAULTS) {
     defaultPhase: PROGRESS_DESIGN_DEFAULTS.defaultPhase,
     phaseAfterGravity: PROGRESS_DESIGN_DEFAULTS.phaseAfterGravity,
     phaseLabels: { ...PROGRESS_DESIGN_DEFAULTS.phaseLabels },
+    abilityPhases: { ...PROGRESS_DESIGN_DEFAULTS.abilityPhases },
+    pathIntent: { ...PROGRESS_DESIGN_DEFAULTS.pathIntent },
   };
   return sanitizeProgressPatch(base, src);
 }
 
-/** @type {{ schemaVersion: number, sections: { feel: Record<string, number>, player: object, progress: object } }} */
+function cloneGravity(src = GRAVITY_DESIGN_DEFAULTS) {
+  return sanitizeGravityPatch({ ...GRAVITY_DESIGN_DEFAULTS }, src);
+}
+
+function cloneAbilityDef(id, src) {
+  const fallback = ABILITY_DESIGN_DEFAULTS[id];
+  const base = fallback
+    ? {
+        ...fallback,
+        legacyIds: fallback.legacyIds ? [...fallback.legacyIds] : undefined,
+        requires: fallback.requires ? [...fallback.requires] : undefined,
+        grants: { ...fallback.grants },
+      }
+    : { id, grants: {} };
+  return sanitizeAbilityDef(base, src);
+}
+
+function abilityPatchFrom(src, id) {
+  if (!src || typeof src !== 'object') return undefined;
+  if (src[id]) return src[id];
+  if (id === ABILITY_ID.GRAVITY_FALL && src.gravity) return src.gravity;
+  return undefined;
+}
+
+function cloneAbilities(src = ABILITY_DESIGN_DEFAULTS) {
+  const next = {};
+  for (const id of ABILITY_UNLOCK_ORDER) {
+    next[id] = cloneAbilityDef(id, abilityPatchFrom(src, id));
+  }
+  if (src && typeof src === 'object') {
+    for (const [rawId, def] of Object.entries(src)) {
+      const id = canonicalAbilityId(rawId);
+      if (!id || next[id]) continue;
+      next[id] = cloneAbilityDef(id, def);
+    }
+  }
+  return next;
+}
+
+function cloneRooms(src = ROOMS) {
+  return sanitizeRooms(src);
+}
+
+function clonePickups(src = PICKUP_DESIGN_DEFAULTS) {
+  return sanitizePickups(src);
+}
+
+function cloneGates(src = GATE_DESIGN_DEFAULTS) {
+  return sanitizeGates(src);
+}
+
+/** @type {{ schemaVersion: number, sections: object }} */
 let state = {
   schemaVersion: SCHEMA_VERSION,
   sections: {
     feel: cloneFeel(),
+    gravity: cloneGravity(),
+    abilities: cloneAbilities(),
     player: clonePlayer(),
     progress: cloneProgress(),
+    rooms: cloneRooms(),
+    pickups: clonePickups(),
+    gates: cloneGates(),
   },
 };
 
@@ -144,7 +390,13 @@ function clampInt(raw, min, max, fallback) {
 
 function sanitizeAbilityList(list) {
   if (!Array.isArray(list)) return null;
-  return [...new Set(list.filter((id) => typeof id === 'string' && id.trim()))].map((id) => id.trim());
+  return [
+    ...new Set(
+      list
+        .map((id) => canonicalAbilityId(id))
+        .filter((id) => typeof id === 'string' && id)
+    ),
+  ];
 }
 
 function sanitizeItemMap(obj) {
@@ -165,6 +417,7 @@ function sanitizePlayerPatch(base, patch) {
     startingHp: base.startingHp,
     startingAbilities: [...base.startingAbilities],
     startingItems: { ...base.startingItems },
+    abilityUnlockOrder: [...(base.abilityUnlockOrder ?? ABILITY_UNLOCK_ORDER)],
   };
   if (!patch || typeof patch !== 'object') return next;
   if (patch.maxHp !== undefined) next.maxHp = clampInt(patch.maxHp, 1, 20, next.maxHp);
@@ -177,6 +430,8 @@ function sanitizePlayerPatch(base, patch) {
   if (abilities) next.startingAbilities = abilities;
   const items = sanitizeItemMap(patch.startingItems);
   if (items) next.startingItems = items;
+  const order = sanitizeAbilityList(patch.abilityUnlockOrder);
+  if (order && order.length) next.abilityUnlockOrder = order;
   return next;
 }
 
@@ -189,6 +444,8 @@ function sanitizeProgressPatch(base, patch) {
     defaultPhase: base.defaultPhase,
     phaseAfterGravity: base.phaseAfterGravity,
     phaseLabels: { ...base.phaseLabels },
+    abilityPhases: { ...base.abilityPhases },
+    pathIntent: { ...base.pathIntent },
   };
   if (!patch || typeof patch !== 'object') return next;
   if (typeof patch.defaultPhase === 'string' && patch.defaultPhase.trim()) {
@@ -204,11 +461,214 @@ function sanitizeProgressPatch(base, patch) {
       }
     }
   }
+  if (patch.abilityPhases && typeof patch.abilityPhases === 'object') {
+    for (const [key, value] of Object.entries(patch.abilityPhases)) {
+      const id = canonicalAbilityId(key);
+      if (id && typeof value === 'string' && value.trim()) {
+        next.abilityPhases[id] = value.trim();
+      }
+    }
+  }
+  if (patch.pathIntent && typeof patch.pathIntent === 'object') {
+    for (const [key, value] of Object.entries(patch.pathIntent)) {
+      if (typeof key === 'string' && key && typeof value === 'string' && value.trim()) {
+        next.pathIntent[key] = value.trim();
+      }
+    }
+  }
   return next;
 }
 
 function sanitizeProgress(patch) {
   return sanitizeProgressPatch(state.sections.progress, patch);
+}
+
+function sanitizeGravityPatch(base, patch) {
+  const next = {
+    rotateVectorOnly: base.rotateVectorOnly !== false,
+    rotateCamera: base.rotateCamera === true,
+    affects: base.affects || 'allNonFixedBodies',
+    fixedBodiesTag: base.fixedBodiesTag || 'fixed',
+    cardinalOnlyUntil: canonicalAbilityId(base.cardinalOnlyUntil) || ABILITY_ID.GRAVITY_FIELD,
+    cardinalAxes: [...(base.cardinalAxes ?? CARDINAL_AXES)],
+    snapDownToNearestAxis: base.snapDownToNearestAxis !== false,
+    defaultDown: normalizeDown(base.defaultDown),
+    magnitudeKey: base.magnitudeKey || 'feel.gravityY',
+    airLocksDirection: base.airLocksDirection !== false,
+    airLockRequiresAbility: canonicalAbilityId(base.airLockRequiresAbility) || ABILITY_ID.GRAVITY_FALL,
+    changeDirectionRequires: {
+      groundedOrSupported: base.changeDirectionRequires?.groundedOrSupported !== false,
+      exceptAbility:
+        canonicalAbilityId(base.changeDirectionRequires?.exceptAbility) || ABILITY_ID.GRAVITY_FIELD,
+    },
+  };
+  if (!patch || typeof patch !== 'object') return next;
+  if (patch.rotateVectorOnly !== undefined) next.rotateVectorOnly = patch.rotateVectorOnly !== false;
+  if (patch.rotateCamera !== undefined) next.rotateCamera = patch.rotateCamera === true;
+  if (typeof patch.affects === 'string' && patch.affects.trim()) next.affects = patch.affects.trim();
+  if (typeof patch.fixedBodiesTag === 'string' && patch.fixedBodiesTag.trim()) {
+    next.fixedBodiesTag = patch.fixedBodiesTag.trim();
+  }
+  if (typeof patch.cardinalOnlyUntil === 'string') {
+    next.cardinalOnlyUntil = canonicalAbilityId(patch.cardinalOnlyUntil) || next.cardinalOnlyUntil;
+  }
+  if (Array.isArray(patch.cardinalAxes)) {
+    const axes = patch.cardinalAxes.filter((a) => isCardinal(a));
+    if (axes.length) next.cardinalAxes = [...new Set(axes)];
+  }
+  if (patch.snapDownToNearestAxis !== undefined) {
+    next.snapDownToNearestAxis = patch.snapDownToNearestAxis !== false;
+  }
+  if (typeof patch.defaultDown === 'string') next.defaultDown = normalizeDown(patch.defaultDown);
+  if (typeof patch.magnitudeKey === 'string' && patch.magnitudeKey.trim()) {
+    next.magnitudeKey = patch.magnitudeKey.trim();
+  }
+  if (patch.airLocksDirection !== undefined) next.airLocksDirection = patch.airLocksDirection !== false;
+  if (typeof patch.airLockRequiresAbility === 'string') {
+    next.airLockRequiresAbility =
+      canonicalAbilityId(patch.airLockRequiresAbility) || next.airLockRequiresAbility;
+  }
+  if (patch.changeDirectionRequires && typeof patch.changeDirectionRequires === 'object') {
+    if (patch.changeDirectionRequires.groundedOrSupported !== undefined) {
+      next.changeDirectionRequires.groundedOrSupported =
+        patch.changeDirectionRequires.groundedOrSupported !== false;
+    }
+    if (typeof patch.changeDirectionRequires.exceptAbility === 'string') {
+      next.changeDirectionRequires.exceptAbility =
+        canonicalAbilityId(patch.changeDirectionRequires.exceptAbility) ||
+        next.changeDirectionRequires.exceptAbility;
+    }
+  }
+  return next;
+}
+
+function sanitizeGravity(patch) {
+  return sanitizeGravityPatch(state.sections.gravity, patch);
+}
+
+function sanitizeAbilityDef(base, patch) {
+  const next = {
+    id: canonicalAbilityId(base.id) || base.id,
+    tier: base.tier,
+    label: base.label,
+    grants: { ...(base.grants || {}) },
+  };
+  if (base.legacyIds) next.legacyIds = [...base.legacyIds];
+  if (base.requires) next.requires = [...base.requires];
+  if (!patch || typeof patch !== 'object') return next;
+  if (typeof patch.id === 'string') next.id = canonicalAbilityId(patch.id) || next.id;
+  if (typeof patch.tier === 'string' && patch.tier.trim()) next.tier = patch.tier.trim();
+  if (typeof patch.label === 'string' && patch.label.trim()) next.label = patch.label.trim();
+  if (Array.isArray(patch.legacyIds)) {
+    next.legacyIds = [
+      ...new Set(patch.legacyIds.filter((id) => typeof id === 'string' && id.trim()).map((id) => id.trim())),
+    ];
+  }
+  const requires = sanitizeAbilityList(patch.requires);
+  if (requires) next.requires = requires;
+  if (patch.grants && typeof patch.grants === 'object') {
+    next.grants = { ...next.grants, ...patch.grants };
+    if (typeof next.grants.gravityDirections === 'string') {
+      next.grants.gravityDirections = next.grants.gravityDirections.trim();
+    }
+  }
+  return next;
+}
+
+function sanitizeAbilities(patch) {
+  return cloneAbilities(patch && typeof patch === 'object' ? patch : state.sections.abilities);
+}
+
+function sanitizeRooms(list) {
+  const src = Array.isArray(list) && list.length ? list : ROOMS;
+  const rooms = [];
+  const seen = new Set();
+  for (const raw of src) {
+    if (!raw || typeof raw !== 'object') continue;
+    const id = typeof raw.id === 'string' ? raw.id.trim() : '';
+    if (!id || seen.has(id)) continue;
+    const x = Number(raw.x);
+    const y = Number(raw.y);
+    const w = Number(raw.w);
+    const h = Number(raw.h);
+    if (![x, y, w, h].every(Number.isFinite) || w <= 0 || h <= 0) continue;
+    seen.add(id);
+    const room = { id, x, y, w, h };
+    if (typeof raw.role === 'string' && raw.role.trim()) room.role = raw.role.trim();
+    rooms.push(room);
+  }
+  return rooms.length ? rooms : ROOMS.map((r) => ({ ...r }));
+}
+
+function sanitizeOnCollect(raw) {
+  if (!raw || typeof raw !== 'object') return {};
+  const next = {};
+  if (typeof raw.unlockAbility === 'string') {
+    next.unlockAbility = canonicalAbilityId(raw.unlockAbility);
+  }
+  const items = sanitizeItemMap(raw.addItem);
+  if (items) next.addItem = items;
+  if (typeof raw.advancePhase === 'string' && raw.advancePhase.trim()) {
+    next.advancePhase = raw.advancePhase.trim();
+  }
+  if (typeof raw.statusBanner === 'string' && raw.statusBanner.trim()) {
+    next.statusBanner = raw.statusBanner.trim();
+  }
+  return next;
+}
+
+function sanitizePickups(list) {
+  const src = Array.isArray(list) && list.length ? list : PICKUP_DESIGN_DEFAULTS;
+  const pickups = [];
+  const seen = new Set();
+  for (const raw of src) {
+    if (!raw || typeof raw !== 'object') continue;
+    const id = typeof raw.id === 'string' ? raw.id.trim() : '';
+    if (!id || seen.has(id)) continue;
+    const x = Number(raw.x);
+    const y = Number(raw.y);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+    seen.add(id);
+    const requires = sanitizeAbilityList(raw.requires);
+    pickups.push({
+      id,
+      ability: canonicalAbilityId(raw.ability) || id,
+      roomId: typeof raw.roomId === 'string' ? raw.roomId.trim() : '',
+      x,
+      y,
+      requires: requires ?? [],
+      onCollect: sanitizeOnCollect(raw.onCollect),
+    });
+  }
+  return pickups;
+}
+
+function sanitizeGates(list) {
+  const src = Array.isArray(list) && list.length ? list : GATE_DESIGN_DEFAULTS;
+  const gates = [];
+  const seen = new Set();
+  for (const raw of src) {
+    if (!raw || typeof raw !== 'object') continue;
+    const id = typeof raw.id === 'string' ? raw.id.trim() : '';
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    const gate = {
+      id,
+      fromRoomId: typeof raw.fromRoomId === 'string' ? raw.fromRoomId.trim() : '',
+      toRoomId: typeof raw.toRoomId === 'string' ? raw.toRoomId.trim() : '',
+      kind: typeof raw.kind === 'string' ? raw.kind.trim() : 'passage',
+      requireAbility: canonicalAbilityId(raw.requireAbility),
+    };
+    if (raw.world && typeof raw.world === 'object') {
+      const x = Number(raw.world.x);
+      const y = Number(raw.world.y);
+      const w = Number(raw.world.w);
+      const h = Number(raw.world.h);
+      if ([x, y, w, h].every(Number.isFinite)) gate.world = { x, y, w, h };
+    }
+    gates.push(gate);
+  }
+  return gates;
 }
 
 function notify() {
@@ -235,21 +695,44 @@ function persist() {
   const ls = storage();
   if (!ls) return;
   try {
-    ls.setItem(
-      DESIGN_STORAGE_KEY,
-      JSON.stringify({
-        schemaVersion: SCHEMA_VERSION,
-        logicalW: GAME_W,
-        logicalH: GAME_H,
-        sections: {
-          feel: getFeel(),
-          player: getPlayerDesign(),
-          progress: getProgressDesign(),
-        },
-      })
-    );
+    ls.setItem(DESIGN_STORAGE_KEY, JSON.stringify(buildExportPayload()));
   } catch {
     // quota / private mode — live tweaks still work this session
+  }
+}
+
+function applyImportedObject(obj) {
+  const feel = obj?.sections?.feel ?? obj?.feel;
+  if (feel && typeof feel === 'object') {
+    state.sections.feel = sanitizeFeel(feel);
+  }
+  const gravity = obj?.sections?.gravity ?? obj?.gravity;
+  if (gravity && typeof gravity === 'object') {
+    state.sections.gravity = sanitizeGravity(gravity);
+  }
+  const abilities = obj?.sections?.abilities ?? obj?.abilities;
+  if (abilities && typeof abilities === 'object') {
+    state.sections.abilities = sanitizeAbilities(abilities);
+  }
+  const player = obj?.sections?.player ?? obj?.player;
+  if (player && typeof player === 'object') {
+    state.sections.player = sanitizePlayer(player);
+  }
+  const progress = obj?.sections?.progress ?? obj?.progress;
+  if (progress && typeof progress === 'object') {
+    state.sections.progress = sanitizeProgress(progress);
+  }
+  const rooms = obj?.sections?.rooms ?? obj?.rooms;
+  if (Array.isArray(rooms)) {
+    state.sections.rooms = sanitizeRooms(rooms);
+  }
+  const pickups = obj?.sections?.pickups ?? obj?.pickups;
+  if (Array.isArray(pickups)) {
+    state.sections.pickups = sanitizePickups(pickups);
+  }
+  const gates = obj?.sections?.gates ?? obj?.gates;
+  if (Array.isArray(gates)) {
+    state.sections.gates = sanitizeGates(gates);
   }
 }
 
@@ -267,18 +750,7 @@ function loadFromStorage() {
     if (!obj?.logicalW && !obj?.logicalH) {
       return;
     }
-    const feel = obj?.sections?.feel ?? obj?.feel;
-    if (feel && typeof feel === 'object') {
-      state.sections.feel = sanitizeFeel(feel);
-    }
-    const player = obj?.sections?.player ?? obj?.player;
-    if (player && typeof player === 'object') {
-      state.sections.player = sanitizePlayer(player);
-    }
-    const progress = obj?.sections?.progress ?? obj?.progress;
-    if (progress && typeof progress === 'object') {
-      state.sections.progress = sanitizeProgress(progress);
-    }
+    applyImportedObject(obj);
   } catch {
     // corrupt payload — keep defaults
   }
@@ -299,6 +771,7 @@ export function getPlayerDesign() {
     startingHp: p.startingHp,
     startingAbilities: [...p.startingAbilities],
     startingItems: { ...p.startingItems },
+    abilityUnlockOrder: [...(p.abilityUnlockOrder ?? ABILITY_UNLOCK_ORDER)],
   };
 }
 
@@ -309,7 +782,50 @@ export function getProgressDesign() {
     defaultPhase: p.defaultPhase,
     phaseAfterGravity: p.phaseAfterGravity,
     phaseLabels: { ...p.phaseLabels },
+    abilityPhases: { ...p.abilityPhases },
+    pathIntent: { ...p.pathIntent },
   };
+}
+
+export function getGravityDesign() {
+  const g = state.sections.gravity;
+  return {
+    ...g,
+    cardinalAxes: [...g.cardinalAxes],
+    changeDirectionRequires: { ...g.changeDirectionRequires },
+  };
+}
+
+export function getAbilitiesDesign() {
+  return cloneAbilities(state.sections.abilities);
+}
+
+export function getAbilityDesign(id) {
+  const key = canonicalAbilityId(id);
+  const def = state.sections.abilities[key];
+  return def ? cloneAbilityDef(key, def) : null;
+}
+
+export function getRooms() {
+  return state.sections.rooms.map((r) => ({ ...r }));
+}
+
+export function getPickups() {
+  return state.sections.pickups.map((p) => ({
+    ...p,
+    requires: [...p.requires],
+    onCollect: {
+      ...p.onCollect,
+      addItem: p.onCollect.addItem ? { ...p.onCollect.addItem } : undefined,
+    },
+  }));
+}
+
+export function getGates() {
+  return state.sections.gates.map((g) => ({
+    ...g,
+    world: g.world ? { ...g.world } : undefined,
+  }));
 }
 
 /**
@@ -328,8 +844,13 @@ export function resetDesignToDefaults() {
     schemaVersion: SCHEMA_VERSION,
     sections: {
       feel: cloneFeel(),
+      gravity: cloneGravity(),
+      abilities: cloneAbilities(),
       player: clonePlayer(),
       progress: cloneProgress(),
+      rooms: cloneRooms(),
+      pickups: clonePickups(),
+      gates: cloneGates(),
     },
   };
   const ls = storage();
@@ -379,7 +900,38 @@ export function formatDesignStamp(date = new Date()) {
   );
 }
 
-/** Bot-friendly export payload (stable key order). */
+function exportAbility(id) {
+  const a = state.sections.abilities[id] ?? cloneAbilityDef(id);
+  const out = {
+    id: a.id,
+    tier: a.tier,
+    label: a.label,
+    grants: { ...a.grants },
+  };
+  if (a.legacyIds?.length) out.legacyIds = [...a.legacyIds];
+  if (a.requires?.length) out.requires = [...a.requires];
+  return out;
+}
+
+function exportGravity() {
+  const g = getGravityDesign();
+  return {
+    rotateVectorOnly: g.rotateVectorOnly,
+    rotateCamera: false,
+    affects: g.affects,
+    fixedBodiesTag: g.fixedBodiesTag,
+    cardinalOnlyUntil: g.cardinalOnlyUntil,
+    cardinalAxes: [...g.cardinalAxes],
+    snapDownToNearestAxis: g.snapDownToNearestAxis,
+    defaultDown: g.defaultDown,
+    magnitudeKey: g.magnitudeKey,
+    airLocksDirection: g.airLocksDirection,
+    airLockRequiresAbility: g.airLockRequiresAbility,
+    changeDirectionRequires: { ...g.changeDirectionRequires },
+  };
+}
+
+/** Bot-friendly export payload (stable key order). schemaVersion 3. */
 export function buildExportPayload(date = new Date()) {
   const feel = getFeel();
   const player = getPlayerDesign();
@@ -388,6 +940,14 @@ export function buildExportPayload(date = new Date()) {
     schemaVersion: SCHEMA_VERSION,
     game: GAME_ID,
     exportedAt: date.toISOString(),
+    logicalW: GAME_W,
+    logicalH: GAME_H,
+    worldScale: WORLD_SCALE,
+    intent: { ...INTENT_DEFAULTS },
+    compat: {
+      fromSchemaVersion: COMPAT_DEFAULTS.fromSchemaVersion,
+      notes: [...COMPAT_DEFAULTS.notes],
+    },
     sections: {
       feel: {
         moveSpeed: feel.moveSpeed,
@@ -400,25 +960,39 @@ export function buildExportPayload(date = new Date()) {
         jumpBufferMs: feel.jumpBufferMs,
         floatNudge: feel.floatNudge,
       },
+      gravity: exportGravity(),
+      abilities: {
+        [ABILITY_ID.GRAVITY_FALL]: exportAbility(ABILITY_ID.GRAVITY_FALL),
+        [ABILITY_ID.SURFACE_WALK]: exportAbility(ABILITY_ID.SURFACE_WALK),
+        [ABILITY_ID.REACTION_JUMP]: exportAbility(ABILITY_ID.REACTION_JUMP),
+        [ABILITY_ID.GRAVITY_FIELD]: exportAbility(ABILITY_ID.GRAVITY_FIELD),
+      },
       player: {
         maxHp: player.maxHp,
         startingHp: player.startingHp,
         startingAbilities: [...player.startingAbilities],
         startingItems: { ...player.startingItems },
+        abilityUnlockOrder: [...player.abilityUnlockOrder],
       },
       progress: {
         defaultPhase: progress.defaultPhase,
         phaseAfterGravity: progress.phaseAfterGravity,
         phaseLabels: { ...progress.phaseLabels },
+        abilityPhases: { ...progress.abilityPhases },
+        pathIntent: { ...progress.pathIntent },
       },
+      rooms: getRooms(),
+      pickups: getPickups(),
+      gates: getGates(),
     },
   };
 }
 
 /**
- * Apply a full dump or `{ sections: { feel, player, progress } }`.
+ * Apply a full dump or `{ sections: { feel, player, progress, ... } }`.
  * Unknown keys are ignored; missing sections / keys keep current values.
- * v1 feel-only JSON is valid. Player/progress patches merge when present.
+ * v1 feel-only and v2 player/progress JSON are valid.
+ * Legacy ability id `gravity` maps to `gravityFall`. Feel numbers are not re-scaled.
  * @param {object|string} input
  */
 export function applyDesignConfig(input) {
@@ -426,18 +1000,7 @@ export function applyDesignConfig(input) {
   if (!obj || typeof obj !== 'object') {
     throw new Error('design config must be an object or JSON string');
   }
-  const feel = obj.sections?.feel ?? obj.feel;
-  if (feel && typeof feel === 'object') {
-    state.sections.feel = sanitizeFeel(feel);
-  }
-  const player = obj.sections?.player ?? obj.player;
-  if (player && typeof player === 'object') {
-    state.sections.player = sanitizePlayer(player);
-  }
-  const progress = obj.sections?.progress ?? obj.progress;
-  if (progress && typeof progress === 'object') {
-    state.sections.progress = sanitizeProgress(progress);
-  }
+  applyImportedObject(obj);
   persist();
   notify();
   return buildExportPayload();
