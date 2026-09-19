@@ -37,6 +37,18 @@ const ROOM_KIND_COLOR = Object.freeze({
     wall: 0x263238,
     plat: 0x546e7a,
   }),
+  R5: Object.freeze({
+    floor: 0x4e3b2f,
+    ceiling: 0x3e2723,
+    wall: 0x5d4037,
+    plat: 0xbf6a4e,
+  }),
+  R6: Object.freeze({
+    floor: 0x4a148c,
+    ceiling: 0x311b92,
+    wall: 0x6a1b9a,
+    plat: 0x8e24aa,
+  }),
 });
 
 function addSolidRect(scene, solids, x, y, w, h, color = 0x5d4037) {
@@ -165,7 +177,9 @@ export function countRoomSourceSolids(rooms = []) {
 
 export function colorForSolid(roomId, kind, solid = {}) {
   const k = normalizeSolidKind(kind);
-  if (roomId === 'R4' && k === 'wall' && Number(solid.h) < 360) return 0x455a64;
+  if ((roomId === 'R4' || roomId === 'R5') && k === 'wall' && Number(solid.h) < 360) {
+    return roomId === 'R5' ? 0x6d4c41 : 0x455a64;
+  }
   return ROOM_KIND_COLOR[roomId]?.[k] ?? KIND_COLOR[k] ?? KIND_COLOR.custom;
 }
 
@@ -393,6 +407,26 @@ function appendHardcodedRooms(rooms, gates, helpers) {
     addRect(r4.x + px(140), r4.y + px(90), px(48), platH, 0x546e7a, 'plat');
     addRect(r4.x + px(280), r4.y + px(50), wallW, px(90), 0x455a64, 'wall');
   }
+
+  const r5 = roomById(rooms, 'R5');
+  if (r5 && !roomHasSolids(r5)) {
+    addRect(r5.x, r5.y + r5.h - floorH, r5.w, floorH, 0x4e3b2f, 'floor');
+    addRect(r5.x, r5.y, r5.w, wallW, 0x3e2723, 'ceiling');
+    addRect(r5.x, r5.y, wallW, px(100), 0x5d4037, 'wall');
+    addRect(r5.x + r5.w - wallW, r5.y, wallW, px(100), 0x5d4037, 'wall');
+    addRect(r5.x + r5.w - wallW, r5.y + px(140), wallW, px(40), 0x5d4037, 'wall');
+    addRect(r5.x + px(248), r5.y + px(132), px(64), platH, 0xbf6a4e, 'plat');
+  }
+
+  const r6 = roomById(rooms, 'R6');
+  if (r6 && !roomHasSolids(r6)) {
+    addRect(r6.x, r6.y + r6.h - floorH, r6.w, floorH, 0x4a148c, 'floor');
+    addRect(r6.x, r6.y, r6.w, wallW, 0x311b92, 'ceiling');
+    addRect(r6.x, r6.y, wallW, px(100), 0x6a1b9a, 'wall');
+    addRect(r6.x, r6.y + px(140), wallW, px(40), 0x6a1b9a, 'wall');
+    addRect(r6.x + r6.w - wallW, r6.y, wallW, r6.h, 0x6a1b9a, 'wall');
+    addRect(r6.x + px(40), r6.y + px(100), px(48), platH, 0x8e24aa, 'plat');
+  }
 }
 
 /**
@@ -434,9 +468,23 @@ export function listWorldSolidRects(rooms, gates = []) {
  * True when a vertical band around `x` is sealed by a tall solid
  * (floor/ceiling slabs and short platforms do not count).
  */
+/** Same-Y abutting rooms (R0–R2 corridor and R4–R5–R6 jump/field band). */
+export function horizontalJoinXs(rooms = []) {
+  const joins = [];
+  for (const a of rooms) {
+    for (const b of rooms) {
+      if (!a || !b || a.id >= b.id) continue;
+      if (a.y !== b.y || a.h !== b.h) continue;
+      if (a.x + a.w === b.x) joins.push(b.x);
+      if (b.x + b.w === a.x) joins.push(a.x);
+    }
+  }
+  return [...new Set(joins)].sort((x, y) => x - y);
+}
+
 /** Which vertical sides of a room are corridor joins (leave the stroke open). */
 export function corridorOpenEdges(room, rooms = []) {
-  const joins = corridorJoinXs(rooms);
+  const joins = horizontalJoinXs(rooms);
   if (!room) return { left: false, right: false };
   return {
     left: joins.includes(room.x),

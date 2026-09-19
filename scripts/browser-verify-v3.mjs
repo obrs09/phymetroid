@@ -76,16 +76,19 @@ const boot = await page.evaluate(() => ({
 }));
 
 check('schemaVersion 4', boot.schema === 4, String(boot.schema));
+const solidCounts = Object.fromEntries(boot.rooms.map((r) => [r.id, r.solids]));
 check(
   'v4 solid counts',
-  boot.rooms.every((r) => ({ R0: 5, R1: 6, R2: 7, R3: 8, R4: 7 })[r.id] === r.solids),
-  JSON.stringify(boot.rooms)
+  JSON.stringify(solidCounts) === JSON.stringify({ R0: 5, R1: 6, R2: 7, R3: 8, R4: 7, R5: 6, R6: 6 }),
+  JSON.stringify(solidCounts)
 );
-check('layoutRevision 5', boot.layoutRevision === 5, String(boot.layoutRevision));
+check('layoutRevision 6', boot.layoutRevision === 6, String(boot.layoutRevision));
 check('baked design validates', Array.isArray(boot.validation) && boot.validation.length === 0, JSON.stringify(boot.validation));
 check('logical 640x360', boot.logical.w === 640 && boot.logical.h === 360, JSON.stringify(boot.logical));
 check('R3 under R1', boot.rooms.find((r) => r.id === 'R3')?.y === 360);
 check('R4 above R2', boot.rooms.find((r) => r.id === 'R4')?.x === 1280 && boot.rooms.find((r) => r.id === 'R4')?.y === -360);
+check('R5 east of R4', boot.rooms.find((r) => r.id === 'R5')?.x === 1920 && boot.rooms.find((r) => r.id === 'R5')?.y === -360);
+check('R6 east of R5', boot.rooms.find((r) => r.id === 'R6')?.x === 2560 && boot.rooms.find((r) => r.id === 'R6')?.y === -360);
 check('surfaceWalkOrb coords', boot.orb?.x === 1320 && boot.orb?.y === -320, JSON.stringify(boot.orb));
 check('camera rotation 0 at boot', boot.cam === 0, String(boot.cam));
 check('start no abilities', boot.run.abilities.length === 0);
@@ -247,7 +250,7 @@ check(
   !oldDoor.near.some((s) => s.h >= 200 && s.y < 40 && s.y + s.h > 280),
   JSON.stringify(oldDoor.near)
 );
-check('export restamps layoutRevision 5', oldDoor.rev === 5, String(oldDoor.rev));
+check('export restamps layoutRevision 6', oldDoor.rev === 6, String(oldDoor.rev));
 
 await page.evaluate(() => window.__PHYMETROID_DEBUG__.setDown('up'));
 await new Promise((r) => setTimeout(r, 1100));
@@ -292,15 +295,67 @@ const j1 = await page.evaluate(() => window.__PHYMETROID_DEBUG__.pos());
 check('II-mode cannot jump (needs reactionJump)', j1.y >= j0.y - 6, `y ${j0.y.toFixed(1)} → ${j1.y.toFixed(1)}`);
 await page.screenshot({ path: `${OUT}/v3_07_walk_no_jump.png` });
 
+// R5 reactionJump orb (requires surfaceWalk — already unlocked)
+await page.evaluate(() => {
+  window.__PHYMETROID_DEBUG__.setDown('down');
+  window.__PHYMETROID_DEBUG__.warp(2000, -80);
+});
+await new Promise((r) => setTimeout(r, 500));
+run = await page.evaluate(() => window.__PHYMETROID_GET_RUN__());
+check('picked reactionJump', run.abilities.includes('reactionJump'), JSON.stringify(run.abilities));
+check('phase jumpLesson', run.phase === 'jumpLesson', run.phase);
+check('item jumpCore', run.items.jumpCore === 1, JSON.stringify(run.items));
+await page.screenshot({ path: `${OUT}/v4_08_reaction_jump_orb.png` });
+
+await page.evaluate(() => {
+  window.__PHYMETROID_DEBUG__.setDown('down');
+  window.__PHYMETROID_DEBUG__.warp(2000, -48);
+});
+await new Promise((r) => setTimeout(r, 500));
+const jump0 = await page.evaluate(() => window.__PHYMETROID_DEBUG__.pos());
+await page.keyboard.down('Space');
+await new Promise((r) => setTimeout(r, 180));
+await page.keyboard.up('Space');
+const jump1 = await page.evaluate(() => window.__PHYMETROID_DEBUG__.pos());
+check(
+  'II+ can jump after reactionJump',
+  jump1.y < jump0.y - 20,
+  `y ${jump0.y.toFixed(1)} → ${jump1.y.toFixed(1)}`
+);
+await page.screenshot({ path: `${OUT}/v4_09_jump.png` });
+
+// R6 gravityField orb
+await page.evaluate(() => window.__PHYMETROID_DEBUG__.warp(2680, -160));
+await new Promise((r) => setTimeout(r, 500));
+run = await page.evaluate(() => window.__PHYMETROID_GET_RUN__());
+check('picked gravityField', run.abilities.includes('gravityField'), JSON.stringify(run.abilities));
+check('phase fieldLesson', run.phase === 'fieldLesson', run.phase);
+check('item fieldCore', run.items.fieldCore === 1, JSON.stringify(run.items));
+
+const fieldAir = await page.evaluate(() => window.__PHYMETROID_DEBUG__.setDown(45, false));
+check('field allows non-cardinal down in air', fieldAir.down === 45, JSON.stringify(fieldAir));
+const fieldCam = await page.evaluate(() => window.__PHYMETROID_DEBUG__.camRotation());
+check('camera still 0 after 45° field', fieldCam === 0, String(fieldCam));
+run = await page.evaluate(() => window.__PHYMETROID_GET_RUN__());
+check('run gravityDown is 45', run.gravityDown === 45, String(run.gravityDown));
+await page.screenshot({ path: `${OUT}/v4_10_gravity_field.png` });
+
+await page.evaluate(() => window.__PHYMETROID_DEBUG__.setDown('down', true));
+
 // Map overlay
 await page.evaluate(() => window.__PHYMETROID_DEBUG__.toggleMap());
 await new Promise((r) => setTimeout(r, 300));
 const mapInfo = await page.evaluate(() => window.__PHYMETROID_DEBUG__.mapContents());
 check('map R0 shows gravity orb', mapInfo?.R0?.pickups?.some((p) => p.id === 'gravityOrb'));
 check('map R4 shows walk orb once visited', mapInfo?.R4?.pickups?.some((p) => p.id === 'surfaceWalkOrb'));
+check('map R5 shows jump orb once visited', mapInfo?.R5?.pickups?.some((p) => p.id === 'reactionJumpOrb'));
+check('map R6 shows field orb once visited', mapInfo?.R6?.pickups?.some((p) => p.id === 'gravityFieldOrb'));
 check('map R2 shows gate to R4', mapInfo?.R2?.gates?.some((g) => g.dest === 'R4'));
+check('map R5 shows gate to R6', mapInfo?.R5?.gates?.some((g) => g.dest === 'R6'));
 check('map R3 stays spoiler-free if unvisited', !mapInfo?.R3?.visited && (mapInfo?.R3?.pickups?.length ?? 0) === 0);
 check('map keeps R4 role hint', mapInfo?.R4?.role === 'fric');
+check('map keeps R5 role hint', mapInfo?.R5?.role === 'jump');
+check('map keeps R6 role hint', mapInfo?.R6?.role === 'field');
 await page.screenshot({ path: `${OUT}/v3_08_map_r4.png` });
 await page.evaluate(() => window.__PHYMETROID_DEBUG__.toggleMap());
 

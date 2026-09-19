@@ -6,7 +6,7 @@
 import { GAME_W, UI_FONT_MD, UI_FONT_SM, px } from './rooms.js';
 import { addHudText } from './hudText.js';
 import { getProgressDesign, subscribeDesign } from './designConfig.js';
-import { axisLabel, DOWN_ARROW_GLYPH } from './gravity.js';
+import { axisLabel, downArrowGlyph } from './gravity.js';
 import { ABILITY, KNOWN_ABILITIES, getAbilityGrants, getItemTotal, getRunState, subscribeRun } from './runState.js';
 
 const ABILITY_TAG = Object.freeze({
@@ -75,7 +75,7 @@ export class RunHud {
     this.abilityText.setText(chips);
     const grants = getAbilityGrants();
     this.abilityText.setColor(grants.hasGravity ? '#80deea' : '#78909c');
-    const arrow = DOWN_ARROW_GLYPH[snap.gravityDown] || '↓';
+    const arrow = downArrowGlyph(snap.gravityDown);
     this.gravText.setText(grants.hasGravity ? `${arrow} ${axisLabel(snap.gravityDown)}` : '');
     this.gravText.setColor('#ce93d8');
 

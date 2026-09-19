@@ -5,7 +5,13 @@
 
 import { GAME_W, GAME_H, UI_FONT_MD, px } from './rooms.js';
 import { addHudText } from './hudText.js';
-import { axisLabel, DOWN_ARROW_GLYPH, downArrowRotation, normalizeDown } from './gravity.js';
+import {
+  axisLabel,
+  canonicalizeDown,
+  DOWN_ARROW_GLYPH,
+  downArrowGlyph,
+  downArrowRotation,
+} from './gravity.js';
 
 export const GRAVITY_FLASH_MS = 550;
 
@@ -52,14 +58,15 @@ export class GravityDownFlash {
 
   /**
    * Brief fade of the current down vector. Safe to retrigger.
-   * @param {string} axis
+   * Camera stays axis-aligned; the arrow is screen-space only.
+   * @param {string|number} axis
    */
   show(axis) {
-    const down = normalizeDown(axis);
+    const down = canonicalizeDown(axis);
     this.lastAxis = down;
     this.lastAt = this.scene.time.now;
     this.arrow.setRotation(downArrowRotation(down));
-    this.label.setText(`${DOWN_ARROW_GLYPH[down] || '↓'} ${axisLabel(down)}`);
+    this.label.setText(`${downArrowGlyph(down)} ${axisLabel(down)}`);
     this.root.setVisible(true);
     this.root.setAlpha(1);
     if (this.tween) this.tween.stop();

@@ -1,6 +1,10 @@
 /**
  * Gravity *vector* (not camera). Cardinal down until gravityField.
  * Arcade world.gravity is wired from this vector; camera stays axis-aligned.
+ *
+ * After gravityField, down may be an angle in degrees (clockwise from
+ * screen-down): 0=down, 90=right, 180=up, 270=left. Cardinal strings stay
+ * the on-axis spelling so existing run/HUD checks keep working.
  */
 
 export const CARDINAL_AXES = Object.freeze(['up', 'down', 'left', 'right']);
@@ -15,27 +19,88 @@ const AXIS_VEC = Object.freeze({
   right: Object.freeze({ x: 1, y: 0 }),
 });
 
+const CARDINAL_DEG = Object.freeze({
+  down: 0,
+  right: 90,
+  up: 180,
+  left: 270,
+});
+
+function unsignZero(n) {
+  return n === 0 ? 0 : n;
+}
+
+/** Degrees clockwise from screen-down, wrapped to [0, 360). */
+export function downAngleDeg(axis, fallback = 0) {
+  if (typeof axis === 'number' && Number.isFinite(axis)) {
+    return ((axis % 360) + 360) % 360;
+  }
+  if (typeof axis === 'string') {
+    if (Object.prototype.hasOwnProperty.call(CARDINAL_DEG, axis)) return CARDINAL_DEG[axis];
+    const n = Number(axis);
+    if (Number.isFinite(n)) return ((n % 360) + 360) % 360;
+  }
+  return fallback;
+}
+
+export function cardinalFromAngle(deg) {
+  const d = downAngleDeg(deg);
+  if (d === 0) return 'down';
+  if (d === 90) return 'right';
+  if (d === 180) return 'up';
+  if (d === 270) return 'left';
+  return null;
+}
+
 export function isCardinal(axis) {
+  if (typeof axis === 'number' && Number.isFinite(axis)) {
+    return cardinalFromAngle(axis) != null;
+  }
   return AXIS_VEC[axis] != null;
 }
 
+/**
+ * Canonical live down: cardinal string when on-axis, else degrees.
+ * Does not snap diagonals to a nearby axis.
+ */
+export function canonicalizeDown(axis, fallback = 'down') {
+  if (typeof axis === 'number' && Number.isFinite(axis)) {
+    const d = downAngleDeg(axis);
+    return cardinalFromAngle(d) ?? d;
+  }
+  if (typeof axis === 'string') {
+    if (AXIS_VEC[axis]) return axis;
+    const n = Number(axis.trim());
+    if (Number.isFinite(n)) return canonicalizeDown(n, fallback);
+  }
+  if (AXIS_VEC[fallback]) return fallback;
+  if (typeof fallback === 'number' && Number.isFinite(fallback)) {
+    return canonicalizeDown(fallback, 'down');
+  }
+  return 'down';
+}
+
+/** Snap to a cardinal axis string (pre-gravityField callers). */
 export function normalizeDown(axis, fallback = 'down') {
-  return isCardinal(axis) ? axis : fallback;
+  const canon = canonicalizeDown(axis, fallback);
+  if (typeof canon === 'string' && AXIS_VEC[canon]) return canon;
+  const g = downVector(canon);
+  return snapDownToNearestAxis(g.x, g.y, typeof fallback === 'string' ? fallback : 'down');
 }
 
 /** Unit vector pointing toward current "down". */
 export function downVector(axis) {
-  return AXIS_VEC[normalizeDown(axis)];
+  const canon = canonicalizeDown(axis);
+  if (typeof canon === 'string' && AXIS_VEC[canon]) return AXIS_VEC[canon];
+  const deg = downAngleDeg(canon);
+  const rad = (deg * Math.PI) / 180;
+  return { x: unsignZero(Math.sin(rad)), y: unsignZero(Math.cos(rad)) };
 }
 
 /**
  * Walk tangent: rotate down 90° CW in y-down space so D walks +X when down=down.
  * (gx, gy) → (gy, -gx)
  */
-function unsignZero(n) {
-  return n === 0 ? 0 : n;
-}
-
 export function walkTangent(axis) {
   const g = downVector(axis);
   return { x: unsignZero(g.y), y: unsignZero(-g.x) };
@@ -46,6 +111,16 @@ export function rotateCardinal(axis, steps = 1) {
   const i = CARDINAL_CW.indexOf(cur);
   const n = CARDINAL_CW.length;
   return CARDINAL_CW[(i + steps + n * 4) % n];
+}
+
+/**
+ * Rotate down by `stepDeg` clockwise per +step (E). Q uses steps = −1.
+ * stepDeg 90 keeps cardinals; gravityField uses 45 (Shift: 15).
+ */
+export function rotateDown(axis, steps = 1, stepDeg = 90) {
+  const deg = Number(stepDeg);
+  const size = Number.isFinite(deg) && deg !== 0 ? deg : 90;
+  return canonicalizeDown(downAngleDeg(axis) + steps * size);
 }
 
 /** Snap an arbitrary vector to the nearest cardinal down. */
@@ -69,43 +144,54 @@ export function gravityAccel(magnitude, axis) {
   return { x: unsignZero(g.x * m), y: unsignZero(g.y * m) };
 }
 
+function sideHit(body, side) {
+  return Boolean(body?.blocked?.[side] || body?.touching?.[side]);
+}
+
 export function isSupportedOnDown(body, axis) {
   if (!body) return false;
-  switch (normalizeDown(axis)) {
-    case 'up':
-      return Boolean(body.blocked?.up || body.touching?.up);
-    case 'left':
-      return Boolean(body.blocked?.left || body.touching?.left);
-    case 'right':
-      return Boolean(body.blocked?.right || body.touching?.right);
-    case 'down':
-    default:
-      return Boolean(body.blocked?.down || body.touching?.down);
-  }
+  const g = downVector(axis);
+  let supported = false;
+  if (g.y > 0.35 && sideHit(body, 'down')) supported = true;
+  if (g.y < -0.35 && sideHit(body, 'up')) supported = true;
+  if (g.x > 0.35 && sideHit(body, 'right')) supported = true;
+  if (g.x < -0.35 && sideHit(body, 'left')) supported = true;
+  return supported;
 }
 
 /** Wall = contact on the axis perpendicular to gravity (for wall-slide). */
 export function isTouchingWall(body, axis) {
   if (!body) return false;
-  switch (normalizeDown(axis)) {
-    case 'left':
-    case 'right':
-      return Boolean(
-        body.blocked?.up ||
-          body.blocked?.down ||
-          body.touching?.up ||
-          body.touching?.down
-      );
-    case 'up':
-    case 'down':
-    default:
-      return Boolean(
-        body.blocked?.left ||
-          body.blocked?.right ||
-          body.touching?.left ||
-          body.touching?.right
-      );
+  const g = downVector(axis);
+  const horizGrav = Math.abs(g.x) > Math.abs(g.y);
+  if (horizGrav) {
+    return sideHit(body, 'up') || sideHit(body, 'down');
   }
+  return sideHit(body, 'left') || sideHit(body, 'right');
+}
+
+/**
+ * Walk-tangent sign that pushes *away* from the touched wall, or 0 if none.
+ * Used by reactionJump wall-jump.
+ */
+export function wallJumpWalkSign(body, axis) {
+  if (!body) return 0;
+  const t = walkTangent(axis);
+  if (t.x >= 0.5) {
+    if (sideHit(body, 'left')) return 1;
+    if (sideHit(body, 'right')) return -1;
+  } else if (t.x <= -0.5) {
+    if (sideHit(body, 'right')) return 1;
+    if (sideHit(body, 'left')) return -1;
+  }
+  if (t.y >= 0.5) {
+    if (sideHit(body, 'up')) return 1;
+    if (sideHit(body, 'down')) return -1;
+  } else if (t.y <= -0.5) {
+    if (sideHit(body, 'down')) return 1;
+    if (sideHit(body, 'up')) return -1;
+  }
+  return 0;
 }
 
 export function projectAlong(vx, vy, axisUnit) {
@@ -186,15 +272,18 @@ export function applyGravityVectorToWorld(world, magnitude, axis, { enabled = tr
 }
 
 export function axisLabel(axis) {
-  switch (normalizeDown(axis)) {
+  const canon = canonicalizeDown(axis);
+  switch (canon) {
     case 'up':
       return 'UP';
     case 'left':
       return 'LEFT';
     case 'right':
       return 'RIGHT';
-    default:
+    case 'down':
       return 'DOWN';
+    default:
+      return `${Math.round(downAngleDeg(canon))}°`;
   }
 }
 
@@ -206,16 +295,30 @@ export const DOWN_ARROW_GLYPH = Object.freeze({
   right: '→',
 });
 
+/** Screen-space glyph for cardinal or diagonal down. Camera stays unrotated. */
+export function downArrowGlyph(axis) {
+  const canon = canonicalizeDown(axis);
+  if (DOWN_ARROW_GLYPH[canon]) return DOWN_ARROW_GLYPH[canon];
+  const d = downAngleDeg(canon);
+  if (d > 0 && d < 90) return '↘';
+  if (d > 90 && d < 180) return '↗';
+  if (d > 180 && d < 270) return '↖';
+  if (d > 270 && d < 360) return '↙';
+  return '↓';
+}
+
 /** Phaser rotation (clockwise, y-down) for an arrow texture that points +Y. */
 export function downArrowRotation(axis) {
-  switch (normalizeDown(axis)) {
+  switch (canonicalizeDown(axis)) {
     case 'left':
       return Math.PI / 2;
     case 'up':
       return Math.PI;
     case 'right':
       return -Math.PI / 2;
-    default:
+    case 'down':
       return 0;
+    default:
+      return (-downAngleDeg(axis) * Math.PI) / 180;
   }
 }
