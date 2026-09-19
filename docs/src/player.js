@@ -1,11 +1,13 @@
 import Phaser from './phaser-shim.js';
 import { FEEL_DEFAULTS, getFeel } from './designConfig.js';
+import { px } from './rooms.js';
 
-export const PLAYER_W = 12;
-export const PLAYER_H = 16;
+export const PLAYER_W = px(12);
+export const PLAYER_H = px(16);
 
 /**
- * Default feel targets (Metroid-ish, still readable on 320×180).
+ * Default feel targets (Metroid-ish on 640×360).
+ * Pixel velocities are WORLD_SCALE × the original 320×180 numbers.
  * Live values live in designConfig — GameScene / createPlayer must call getFeel().
  * These exports stay as the documented defaults (not the live session values).
  */
@@ -30,7 +32,7 @@ export function ensurePlayerTexture(scene, key = 'player') {
   const g = scene.make.graphics({ x: 0, y: 0, add: false });
   g.fillStyle(0x4fc3f7, 1);
   g.fillRect(0, 0, PLAYER_W, PLAYER_H);
-  g.lineStyle(1, 0xe1f5fe, 1);
+  g.lineStyle(2, 0xe1f5fe, 1);
   g.strokeRect(0, 0, PLAYER_W, PLAYER_H);
   g.generateTexture(key, PLAYER_W, PLAYER_H);
   g.destroy();

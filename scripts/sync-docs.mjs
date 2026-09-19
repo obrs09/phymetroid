@@ -26,6 +26,7 @@ function copyAndPatch(rel, fromPhaser, toPhaser) {
 copyAndPatch('rooms.js', '', ''); // identical
 copyAndPatch('scaleZoom.js', '', '');
 copyAndPatch('designConfig.js', '', '');
+copyAndPatch('hudText.js', "import Phaser from 'phaser';", "import Phaser from './phaser-shim.js';");
 copyAndPatch('player.js', "import Phaser from 'phaser';", "import Phaser from './phaser-shim.js';");
 copyAndPatch('feelDebugPanel.js', "import Phaser from 'phaser';", "import Phaser from './phaser-shim.js';");
 copyAndPatch(

@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import { GAME_W, GAME_H } from './rooms.js';
 import { GameScene } from './scenes/GameScene.js';
 import { computeIntegerZoom } from './scaleZoom.js';
+import { refreshHudTextResolution } from './hudText.js';
 import './designConfig.js';
 
 function boot() {
@@ -43,6 +44,7 @@ function boot() {
   };
 
   const game = new Phaser.Game(config);
+  game.events.once(Phaser.Core.Events.READY, () => refreshHudTextResolution(zoom));
 
   let lastZoom = zoom;
   window.addEventListener('resize', () => {
@@ -51,6 +53,7 @@ function boot() {
     lastZoom = next;
     game.scale.setZoom(next);
     game.scale.refresh();
+    refreshHudTextResolution(next);
   });
 }
 

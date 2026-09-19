@@ -61,9 +61,27 @@ Optional later: replace with `npm run build` output under `docs/` once you can `
 
 ## Feel / 手感
 
-Tuned toward Metroid-like weight: gravity `980`, jump `-275`, move `110`, coyote `90ms`, jump buffer `100ms`, early jump release cuts upward speed (`0.45`). Pre-gravity A/D nudge is `28`.
+Tuned toward Metroid-like weight at **640×360**. Pixel velocities are **2×** the original 320×180 defaults so hang time (`|jumpVelocity| / gravityY`), room-cross time, and platform clearance stay the same after the layout scale. Time / ratio keys are unchanged.
 
-偏银河战士重量：更重下落、可变跳跃高度、土狼时间与跳跃缓冲。重力拾取前可用 A/D 轻微挪动（默认 28）。
+偏银河战士重量，按 640×360 像素速度加倍：悬空时间、过房间时间、平台净空与原先 320×180 手感一致。时间/比例键未改。
+
+| Key | 320×180 (old) | 640×360 (new) |
+|---|---|---|
+| `moveSpeed` | 110 | **220** |
+| `airControl` | 0.85 | 0.85 |
+| `jumpVelocity` | -275 | **-550** |
+| `jumpCutMultiplier` | 0.45 | 0.45 |
+| `gravityY` | 980 | **1960** |
+| `maxFallSpeed` | 320 | **640** |
+| `coyoteMs` | 90 | 90 |
+| `jumpBufferMs` | 100 | 100 |
+| `floatNudge` | 28 | **56** |
+
+Arcade check: jump apex `v² / 2g` was ~38.6px (clears the 24px block); now ~77.2px (clears the 48px block). Apex time `v / g` stays ~0.28s.
+
+Pre-640×360 `localStorage` feel dumps (no `logicalW`/`logicalH`) are ignored so old pixel speeds do not load onto the new world. Press **R** in the debugger to reset. Export JSON schema is unchanged (`schemaVersion` 1, same `sections.feel` key names).
+
+旧版 localStorage（没有逻辑分辨率标记）会被忽略，避免把 320 速度套到 640 世界上。导出 JSON 的键名不变。
 
 Live values live in `src/designConfig.js` (`getFeel()` / `applyFeel(patch)`). Opening the F1 panel lists every feel field; changing a value applies immediately (if gravity is already on, `gravityY` updates `physics.world.gravity.y` and max fall speed). Tweaks persist in `localStorage` under `phymetroid.designConfig` until you press **R** to reset.
 
@@ -82,15 +100,15 @@ F1 调试打开时按 **E** 下载该 JSON（并尽量复制到剪贴板）。�
   "exportedAt": "2026-09-19T04:30:00.000Z",
   "sections": {
     "feel": {
-      "moveSpeed": 110,
+      "moveSpeed": 220,
       "airControl": 0.85,
-      "jumpVelocity": -275,
+      "jumpVelocity": -550,
       "jumpCutMultiplier": 0.45,
-      "gravityY": 980,
-      "maxFallSpeed": 320,
+      "gravityY": 1960,
+      "maxFallSpeed": 640,
       "coyoteMs": 90,
       "jumpBufferMs": 100,
-      "floatNudge": 28
+      "floatNudge": 56
     }
   }
 }
@@ -110,9 +128,9 @@ Keys are **camelCase**. Mapping: `moveSpeed` walk speed, `airControl` airborne f
 
 ## Display / 显示
 
-Logical size **320×180**, scaled with **integer zoom** (`Scale.NONE` + `computeIntegerZoom`) so pixel art stays sharp. Letterboxing appears when the window is not an exact multiple.
+Logical size **640×360** (exact 2× of 320×180, same 16:9), scaled with **integer zoom** (`Scale.NONE` + `computeIntegerZoom`) so pixel art stays sharp. HUD / debugger / map labels use Courier New monospace at 14–20px (2× the old 7–10px), rasterized at `resolution` ≥ 2 with a linear texture filter (`src/hudText.js`) so glyph AA is not nearest-neighbor magnified by `pixelArt`. Sprites stay NEAREST. Letterboxing appears when the window is not an exact multiple.
 
-逻辑分辨率 **320×180**，使用**整数倍缩放**，避免 FIT 非整数放大导致发糊。
+逻辑分辨率 **640×360**（320×180 的正好 2 倍），使用**整数倍缩放**，避免 FIT 非整数放大导致发糊。UI 用更大等宽字 + 单独线性过滤，减少糊字；像素精灵仍是最近邻。
 
 ## Docs sync / Pages 源同步
 
@@ -129,8 +147,8 @@ This copies shared modules into `docs/src/` and rewrites Phaser imports to the U
 ## Tech / 技术
 
 - Phaser **3.80+**, Arcade Physics (AABB)
-- Logical resolution **320×180**, `Scale.FIT` + `autoCenter` + `pixelArt` / `roundPixels`
-- Rooms data: `src/rooms.js`
+- Logical resolution **640×360**, `Scale.NONE` + integer zoom + `pixelArt` / `roundPixels`
+- Rooms data: `src/rooms.js` (`WORLD_SCALE` / `px()` map the original 320×180 layout)
 
 ## Project layout / 目录
 
@@ -141,5 +159,6 @@ src/rooms.js
 src/player.js
 src/designConfig.js    # live feel + export/import
 src/feelDebugPanel.js  # F1 debugger UI
+src/hudText.js         # sharper HUD / debugger / map labels
 docs/                  # GitHub Pages root (CDN + docs/src)
 ```
