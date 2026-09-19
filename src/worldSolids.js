@@ -87,11 +87,10 @@ export function buildWorldSolids(scene, solids, rooms, gates = []) {
     addRect(r2.x + px(60), r2.y + px(110), px(40), platH, 0x6d4c41);
     addRect(r2.x + px(160), r2.y + px(80), px(40), platH, 0x6d4c41);
     addRect(r2.x + px(240), r2.y + r2.h - floorH - px(32), px(32), px(32), 0x795548);
-    // Catch pillar just left of the ceiling gate so a leftward I-mode fall
-    // can ground under the hole, then flip down=up into R4 (no walk yet).
-    const pillarW = wallW;
-    const pillarH = px(48);
-    addRect(gap.x - pillarW, r2.y + r2.h - floorH - pillarH, pillarW, pillarH, 0x6d4c41);
+    // Doorframe just left of the ceiling gate. A leftward I-mode fall at any
+    // height grounds on this face, then flip down / up through the hole.
+    const frameW = px(12);
+    addRect(gap.x - frameW, r2.y + wallW, frameW, r2.h - floorH - wallW, 0x6d4c41);
   }
 
   const r3 = roomById(rooms, 'R3');

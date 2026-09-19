@@ -75,7 +75,7 @@ export class RunHud {
     this.abilityText.setText(chips);
     const grants = getAbilityGrants();
     this.abilityText.setColor(grants.hasGravity ? '#80deea' : '#78909c');
-    this.gravText.setText(grants.hasGravity ? `DOWN ${axisLabel(snap.gravityDown)}` : '');
+    this.gravText.setText(grants.hasGravity ? `GRAV ${axisLabel(snap.gravityDown)}` : '');
     this.gravText.setColor('#ce93d8');
 
     const ids = Object.keys(snap.items);

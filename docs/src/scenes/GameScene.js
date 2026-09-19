@@ -159,8 +159,30 @@ export class GameScene extends Phaser.Scene {
 
     refreshHudTextResolution(this.scale.zoom);
 
+    if (typeof window !== 'undefined') {
+      window.__PHYMETROID_DEBUG__ = {
+        pos: () => ({
+          x: this.player.x,
+          y: this.player.y,
+          room: this.currentRoomId,
+          down: getGravityDown(),
+        }),
+        camRotation: () => this.cameras.main.rotation,
+        warp: (x, y) => {
+          this.player.setPosition(x, y);
+          this.player.setVelocity(0, 0);
+          const room = findRoomAt(x, y, this.rooms());
+          if (room) this.snapCameraToRoom(room, true);
+          return window.__PHYMETROID_DEBUG__.pos();
+        },
+      };
+    }
+
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this._unsubDesign?.();
+      if (typeof window !== 'undefined' && window.__PHYMETROID_DEBUG__) {
+        delete window.__PHYMETROID_DEBUG__;
+      }
     });
   }
 
@@ -236,6 +258,13 @@ export class GameScene extends Phaser.Scene {
         color: '#546e7a',
       }).setDepth(1);
       g.setDepth(0);
+    }
+    for (const gate of getGates()) {
+      if (!gate.world) continue;
+      const hole = this.add.graphics();
+      hole.fillStyle(0x050508, 1);
+      hole.fillRect(gate.world.x, gate.world.y - 1, gate.world.w, gate.world.h + 2);
+      hole.setDepth(2);
     }
   }
 
