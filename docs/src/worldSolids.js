@@ -412,7 +412,8 @@ function appendHardcodedRooms(rooms, gates, helpers) {
     addFloor(r5.x, r5.y + r5.h - floorH, px(100), floorH, 0x4e3b2f);
     addFloor(r5.x + px(180), r5.y + r5.h - floorH, px(140), floorH, 0x4e3b2f);
     addCeil(r5.x, r5.y, r5.w, wallW, 0x3e2723);
-    addRect(r5.x + px(20), r5.y + px(118), px(60), platH, 0xbf6a4e, 'plat');
+    addRect(r5.x + px(20), r5.y + px(130), px(48), platH, 0xbf6a4e, 'plat');
+    addRect(r5.x + px(180), r5.y + px(120), px(60), platH, 0xbf6a4e, 'plat');
   }
 
   const r6 = roomById(rooms, 'R6');
@@ -420,7 +421,7 @@ function appendHardcodedRooms(rooms, gates, helpers) {
     addFloor(r6.x, r6.y + r6.h - floorH, r6.w, floorH, 0x4a148c);
     addCeil(r6.x, r6.y, r6.w, wallW, 0x311b92);
     addWall(r6.x + r6.w - wallW, r6.y, wallW, r6.h, 0x6a1b9a);
-    addRect(r6.x + px(140), r6.y + px(68), px(48), platH, 0x8e24aa, 'plat');
+    addRect(r6.x + px(140), r6.y + px(80), px(64), platH, 0x8e24aa, 'plat');
   }
 }
 

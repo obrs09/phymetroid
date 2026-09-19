@@ -80,8 +80,8 @@ section('schemaVersion 4 export shape', () => {
   const dump = buildExportPayload();
   assert.equal(dump.schemaVersion, 4);
   assert.equal(SCHEMA_VERSION, 4);
-  assert.equal(dump.layoutRevision, 6);
-  assert.equal(LAYOUT_REVISION, 6);
+  assert.equal(dump.layoutRevision, 5);
+  assert.equal(LAYOUT_REVISION, 5);
   assert.equal(dump.game, 'phymetroid');
   assert.equal(dump.logicalW, 640);
   assert.equal(dump.logicalH, 360);
@@ -117,9 +117,9 @@ section('schemaVersion 4 export shape', () => {
   assert.equal(s.progress.abilityPhases.gravityFall, 'exploration');
   assert.equal(s.progress.abilityPhases.surfaceWalk, 'frictionLesson');
   assert.equal(s.progress.abilityPhases.reactionJump, 'jumpLesson');
-  assert.equal(s.progress.abilityPhases.gravityField, 'fieldLesson');
-  assert.ok(s.progress.pathIntent.en);
+  assert.equal(s.progress.abilityPhases.gravityField, 'exploration');
   assert.ok(Array.isArray(s.progress.pathIntent.zh));
+  assert.ok(s.progress.pathIntent.zh.length >= 4);
   assert.ok(s.abilities.gravityFall.why);
 });
 
@@ -168,10 +168,22 @@ section('rooms / pickups / gates coords', () => {
   assert.deepEqual(fieldOrb.requires, ['reactionJump']);
   const side = getGates().find((g) => g.id === 'gate_R2_to_R5');
   assert.equal(side.requireAbility, 'surfaceWalk');
+  assert.equal(side.kind, 'corridorJoin');
   const jumpGap = getGates().find((g) => g.id === 'gate_R5_mustJump');
   assert.deepEqual(jumpGap.world, { x: 2120, y: 328, w: 160, h: 32 });
   assert.equal(jumpGap.requireAbility, 'reactionJump');
+  assert.equal(jumpGap.kind, 'mustJumpGap');
+  assert.equal(jumpGap.toRoomId, 'R5');
+  assert.equal(getGates().find((g) => g.id === 'gate_R5_to_R6').kind, 'corridorJoin');
   const r5 = rooms.R5;
+  assert.deepEqual(
+    r5.solids.map((s) => s.id),
+    ['R5_floorL', 'R5_floorR', 'R5_ceil', 'R5_platOrb', 'R5_ledge']
+  );
+  const plat = r5.solids.find((s) => s.id === 'R5_platOrb');
+  assert.deepEqual({ x: plat.x, y: plat.y, w: plat.w, h: plat.h }, { x: 40, y: 260, w: 96, h: 16 });
+  const ledge = r5.solids.find((s) => s.id === 'R5_ledge');
+  assert.deepEqual({ x: ledge.x, y: ledge.y, w: ledge.w, h: ledge.h }, { x: 360, y: 240, w: 120, h: 16 });
   const floorCover = (r5.solids || [])
     .filter((s) => s.kind === 'floor')
     .some((s) => s.y === 328 && s.x < 200 + 160 && s.x + s.w > 200);
@@ -183,7 +195,7 @@ section('rooms / pickups / gates coords', () => {
 
 section('v4 rooms[].solids source counts + local/world math', () => {
   const rooms = getRooms();
-  assert.deepEqual(countRoomSourceSolids(rooms), { R0: 5, R1: 6, R2: 6, R3: 8, R4: 7, R5: 4, R6: 4 });
+  assert.deepEqual(countRoomSourceSolids(rooms), { R0: 5, R1: 6, R2: 6, R3: 8, R4: 7, R5: 5, R6: 4 });
   const r4 = rooms.find((r) => r.id === 'R4');
   assert.equal(r4.y, -360);
   const floor = r4.solids.find((s) => s.id === 'R4_floor');
@@ -303,7 +315,7 @@ section('R3 ceiling openings match R1 pits only; L/R/bottom sealed', () => {
   const r3 = getRooms().find((r) => r.id === 'R3');
   const ceils = r3.solids.filter((s) => s.kind === 'ceiling');
   assert.deepEqual(openSpansOnAxis(ceils, 0, 640), [...R1_PIT_LOCAL_SPANS]);
-  const mid = ceils.find((s) => s.id === 'R3_ceilM');
+  const mid = ceils.find((s) => s.id === 'R3_ceilB');
   assert.ok(mid, 'middle ceiling under R1_floorB');
   assert.deepEqual({ x: mid.x, w: mid.w }, { x: 240, w: 160 });
 
@@ -590,7 +602,7 @@ section('phase mapping', () => {
   advancePhaseOnAbility('reactionJump');
   assert.equal(getRunState().phase, 'jumpLesson');
   advancePhaseOnAbility('gravityField');
-  assert.equal(getRunState().phase, 'fieldLesson');
+  assert.equal(getRunState().phase, 'exploration');
   resetRun();
 });
 
@@ -786,7 +798,7 @@ section('invented y=-360 R5/R6 dump relocates onto the Y=0 corridor', () => {
   assert.equal(rooms.R5.x, 1920);
   assert.equal(rooms.R6.y, 0);
   assert.equal(rooms.R6.x, 2560);
-  assert.equal(rooms.R5.solids.length, 4);
+  assert.equal(rooms.R5.solids.length, 5);
   assert.equal(rooms.R4.solids.find((s) => s.id === 'R4_wallR').h, 360);
   const jumpOrb = getPickups().find((p) => p.id === 'reactionJumpOrb');
   assert.deepEqual({ x: jumpOrb.x, y: jumpOrb.y, roomId: jumpOrb.roomId }, { x: 2000, y: 220, roomId: 'R5' });

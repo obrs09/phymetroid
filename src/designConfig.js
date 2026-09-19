@@ -18,7 +18,7 @@
  * sections.abilities / runState — never mixed into feel numbers.
  *
  * Persistence: localStorage key `phymetroid.designConfig` (optional boot load).
- * `layoutRevision` (currently 6) stamps baked solids. Boot migrates incompatible
+ * `layoutRevision` (currently 5) stamps baked solids. Boot migrates incompatible
  * dumps (full-height R2_doorframe, pre-pit R3 ceilings, missing or y=-360 R5/R6) and rewrites storage.
  * Programmatic import: window.__PHYMETROID_APPLY_DESIGN__(objOrJson)
  * or applyDesignConfig(obj). The future 策划 bot can write this same JSON.
@@ -37,7 +37,7 @@ import { isTallR2SolidNearGate, solidToWorldRect } from './worldSolids.js';
 
 export const SCHEMA_VERSION = 4;
 /** Bump when baked solids are incompatible with older localStorage dumps. */
-export const LAYOUT_REVISION = 6;
+export const LAYOUT_REVISION = 5;
 export const GAME_ID = 'phymetroid';
 export const DESIGN_STORAGE_KEY = 'phymetroid.designConfig';
 
@@ -200,7 +200,6 @@ export const PHASE_IDS = Object.freeze([
   'exploration',
   'frictionLesson',
   'jumpLesson',
-  'fieldLesson',
   'boss',
 ]);
 
@@ -212,26 +211,22 @@ export const PROGRESS_DESIGN_DEFAULTS = Object.freeze({
     exploration: 'EXPLORE',
     frictionLesson: 'FRICTION',
     jumpLesson: 'JUMP',
-    fieldLesson: 'FIELD',
     boss: 'BOSS',
   }),
   abilityPhases: Object.freeze({
     [ABILITY_ID.GRAVITY_FALL]: 'exploration',
     [ABILITY_ID.SURFACE_WALK]: 'frictionLesson',
     [ABILITY_ID.REACTION_JUMP]: 'jumpLesson',
-    [ABILITY_ID.GRAVITY_FIELD]: 'fieldLesson',
+    [ABILITY_ID.GRAVITY_FIELD]: 'exploration',
   }),
   pathIntent: Object.freeze({
     zh: Object.freeze([
-      'R0：漂浮 → 碰 gravityOrb → 获得 gravityFall（I）。世界重力矢量开启，「下」吸附最近轴；仍不能走/跳。',
-      'I 阶段：用四向重力当唯一位移手段（着地时可改方向；空中锁定）。穿过 R1 缺口进入 R2。',
-      'R2→R4：R2 顶开通道（第一扇真门，门禁 requireAbility: gravityFall）。右落到门洞右侧短立柱着地，把「下」拨到 up，落体「向上」坠入 R4。门前不得有通高墙。',
-      'R4：摩擦房。左上角 surfaceWalk 拾取 → 获得 II。此后可沿当前「下」行走/扒墙滑。回 R2 右走进入 R5。',
-      'R5 (1920,0)：橙球 reactionJumpOrb (2000,220) → II+。feel jump/cut/coyote/buffer 生效；可贴墙跳。地板缺口 (2120,328,160,32) 是跳跃软门。',
-      'R6 (2560,0)：紫球 gravityFieldOrb (2880,120) → III。Q/E 转 45°（Shift+Q/E 15°），空中可改；[ ] 微调 g。镜头不转。',
-      '旧 R3（R1 正下方）保留探索支线，不改 id，不承担摩擦/跳跃教学。',
+      'R0 黄球 → gravityFall（I）',
+      '四向到 R2 → 翻 up → R4 → surfaceWalk（II）',
+      '回 R2 东行 R5 → reactionJump → 必须跳过中段缺口',
+      '东门 R6 → gravityField（III stub）',
+      '旧 R3 支线；门框矮卡位 layoutRevision 5',
     ]),
-    en: 'R0 float → gravityFall → R2 flip up → R4 surfaceWalk → back to R2 → walk east into R5 → reactionJumpOrb (2000,220) → jump gap (2120,328,160×32) → R6 gravityFieldOrb (2880,120). Camera never rotates.',
   }),
 });
 
@@ -276,7 +271,7 @@ export const PICKUP_DESIGN_DEFAULTS = Object.freeze([
     requires: Object.freeze([ABILITY_ID.SURFACE_WALK]),
     onCollect: Object.freeze({
       unlockAbility: ABILITY_ID.REACTION_JUMP,
-      addItem: Object.freeze({ jumpCore: 1 }),
+      addItem: Object.freeze({ jumpBooster: 1 }),
       advancePhase: 'jumpLesson',
       statusBanner: 'REACTION JUMP',
     }),
@@ -287,12 +282,12 @@ export const PICKUP_DESIGN_DEFAULTS = Object.freeze([
     roomId: 'R6',
     x: 2880,
     y: 120,
-    color: '#ce93d8',
+    color: '#b39ddb',
     requires: Object.freeze([ABILITY_ID.REACTION_JUMP]),
     onCollect: Object.freeze({
       unlockAbility: ABILITY_ID.GRAVITY_FIELD,
       addItem: Object.freeze({ fieldCore: 1 }),
-      advancePhase: 'fieldLesson',
+      advancePhase: 'exploration',
       statusBanner: 'GRAVITY FIELD',
     }),
   }),
@@ -320,49 +315,42 @@ export const GATE_DESIGN_DEFAULTS = Object.freeze([
     id: 'gate_R2_to_R5',
     fromRoomId: 'R2',
     toRoomId: 'R5',
-    kind: 'sidePassage',
+    kind: 'corridorJoin',
     requireAbility: ABILITY_ID.SURFACE_WALK,
-    intent: 'R2 右走廊开口。surfaceWalk 后可行走进入 R5。左右共用竖墙省略。',
+    intent: '需 II 东行进跳跃房。',
   }),
   Object.freeze({
     id: 'gate_R5_mustJump',
     fromRoomId: 'R5',
-    toRoomId: 'R6',
-    kind: 'jumpGap',
+    toRoomId: 'R5',
+    kind: 'mustJumpGap',
     requireAbility: ABILITY_ID.REACTION_JUMP,
     world: Object.freeze({ x: 2120, y: 328, w: 160, h: 32 }),
-    intent: 'R5 地板跳跃软门。拟用 reactionJump 越过；重力翻越也可。',
+    intent: '验收：无跳过不去；有 reactionJump 可上 R5_floorR / ledge。',
   }),
   Object.freeze({
     id: 'gate_R5_to_R6',
     fromRoomId: 'R5',
     toRoomId: 'R6',
-    kind: 'sidePassage',
+    kind: 'corridorJoin',
     requireAbility: ABILITY_ID.REACTION_JUMP,
-    intent: 'R5 右走廊接 R6。需先越过 mustJump 缺口（软门）。',
+    intent: '跳过缺口后进 R6 stub。',
   }),
 ]);
 
 export const INTENT_DEFAULTS = Object.freeze({
-  zh: '只转重力矢量、不转镜头。I 落体 → II 摩擦（R4）→ II+ 跳跃（R5 at y=0）→ III 任意角重力场（R6）。旧 R3 在 R1 下方；R4 在 R2 正上方；R5/R6 在 R2 右侧同一走廊。',
-  en: 'Rotate gravity vector only; camera stays axis-aligned. I fall → II walk (R4) → II+ jump (R5 at y=0) → III field (R6). Legacy R3 under R1; R4 above R2; R5/R6 east of R2 on the Y=0 corridor.',
+  zh: '只转重力矢量、不转镜头。I→II(R4)→reactionJump(R5 must-jump)→gravityField(R6 stub)。layoutRevision 5。',
+  en: 'Vector gravity only. I→II→jump lesson R5→field stub R6. layoutRevision 5.',
 });
 
 export const COMPAT_DEFAULTS = Object.freeze({
   fromSchemaVersion: 3,
   notes: Object.freeze([
-    'v4 adds rooms[].solids (explicit rects, default space:local). No macros in v4.',
-    'v3 dumps without solids still import: engine falls back to worldSolids.js hardcode.',
-    'pickups/gates remain the only pickup/gate source of truth; solids may reference gates via gapGateId.',
-    'world = room.x/y + local; space:world allowed for cross-room pieces (e.g. doorframe).',
-    'Unknown solid.kind → treat as custom/block. Corridor shared vertical walls omitted; engine skips join seals.',
-    'Pixel feel already WORLD_SCALE×2; do not re-scale. Feel debugger keys unchanged.',
-    "Ability id rename: runtime ABILITY.GRAVITY / 'gravity' → 'gravityFall'. Map on import for old saves.",
-    'gate_R1_to_R3 has no world rect; R1→R3 openings come from R1 floorA/B/C pits only.',
-    'layoutRevision 5: strip full-height R2_doorframe on load; keep the short catch stub under gate_R2_to_R4.',
-    'R3 ceiling openings align to R1 pits only (160–240, 400–480). Seal the middle under R1_floorB.',
-    'R3 L/R walls stay sealed even though they share join X 640/1280 — those X values are corridor joins only on the R0–R2 Y band.',
-    'layoutRevision 6: add R5 (1920,0) + R6 (2560,0) on the Y=0 corridor; open R2 right toward R5; keep R2 stub + R3 pit seals; R4 stays above R2.',
+    'layoutRevision 5: short R2_doorframe local(320,264,24,64); R3 ceil A/B/C; R5/R6 added.',
+    'v4 solids data-driven; v3 without solids → engine hardcode fallback.',
+    'corridorJoin skip vertical seals only on Y=0 band (R0–R2–R5–R6); never strip R3 side walls.',
+    'gate_R1_to_R3 has no world; gapGateId dig only for gates with world.',
+    'Pixel feel already WORLD_SCALE×2; do not re-scale.',
   ]),
 });
 
@@ -782,9 +770,9 @@ function bakedR3Ceilings() {
   const ceils = (r3?.solids || []).filter((s) => s.kind === 'ceiling').map((s) => ({ ...s }));
   if (ceils.length) return ceils;
   return [
-    { id: 'R3_ceilL', kind: 'ceiling', space: 'local', x: 0, y: 0, w: 160, h: 16, fixed: true },
-    { id: 'R3_ceilM', kind: 'ceiling', space: 'local', x: 240, y: 0, w: 160, h: 16, fixed: true },
-    { id: 'R3_ceilR', kind: 'ceiling', space: 'local', x: 480, y: 0, w: 160, h: 16, fixed: true },
+    { id: 'R3_ceilA', kind: 'ceiling', space: 'local', x: 0, y: 0, w: 160, h: 16, fixed: true },
+    { id: 'R3_ceilB', kind: 'ceiling', space: 'local', x: 240, y: 0, w: 160, h: 16, fixed: true },
+    { id: 'R3_ceilC', kind: 'ceiling', space: 'local', x: 480, y: 0, w: 160, h: 16, fixed: true },
   ];
 }
 
@@ -890,7 +878,10 @@ function bakedRoomById(id) {
 function isInventedJumpFieldLayout(rooms = []) {
   const r5 = rooms.find((r) => r.id === 'R5');
   const r6 = rooms.find((r) => r.id === 'R6');
-  return Boolean((r5 && r5.y === INVENTED_JUMP_FIELD_Y) || (r6 && r6.y === INVENTED_JUMP_FIELD_Y));
+  if ((r5 && r5.y === INVENTED_JUMP_FIELD_Y) || (r6 && r6.y === INVENTED_JUMP_FIELD_Y)) return true;
+  if (r5?.solids?.length && !r5.solids.some((s) => s.id === 'R5_ledge')) return true;
+  if (r6?.solids?.length && !r6.solids.some((s) => s.id === 'R6_platHigh')) return true;
+  return false;
 }
 
 function restoreR4RightWall(room) {

@@ -40,7 +40,7 @@ export const ROOMS = [
   { id: 'R3', x: GAME_W, y: GAME_H, w: GAME_W, h: GAME_H, role: 'legacyPit' },
   { id: 'R4', x: GAME_W * 2, y: -GAME_H, w: GAME_W, h: GAME_H, role: 'frictionLesson' },
   { id: 'R5', x: GAME_W * 3, y: 0, w: GAME_W, h: GAME_H, role: 'jumpLesson' },
-  { id: 'R6', x: GAME_W * 4, y: 0, w: GAME_W, h: GAME_H, role: 'fieldLesson' },
+  { id: 'R6', x: GAME_W * 4, y: 0, w: GAME_W, h: GAME_H, role: 'fieldStub' },
 ];
 
 /** Full world AABB covering all rooms (minY may be negative — R4). */

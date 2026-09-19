@@ -56,7 +56,7 @@ const PICKUP_COLORS = {
   gravityOrb: { fill: 0xffeb3b, stroke: 0xfff59d },
   surfaceWalkOrb: { fill: 0x80deea, stroke: 0xe0f7fa },
   reactionJumpOrb: { fill: 0xff8a65, stroke: 0xffccbc },
-  gravityFieldOrb: { fill: 0xce93d8, stroke: 0xf3e5f5 },
+  gravityFieldOrb: { fill: 0xb39ddb, stroke: 0xe8eaf6 },
 };
 
 const FIELD_ROTATE_DEG = 45;
