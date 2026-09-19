@@ -28,7 +28,8 @@ export const UI_FONT_MD = `${px(8)}px`;
 export const UI_FONT_LG = `${px(10)}px`;
 
 /**
- * Default room AABBs (schema v3). R3 stays under R1; R4 sits above R2 (neg Y).
+ * Default room AABBs (schema v3 fallback). v4 solids live on design rooms.
+ * R3 stays under R1; R4 sits above R2 (neg Y).
  * @type {{ id: string, x: number, y: number, w: number, h: number, role?: string }[]}
  */
 export const ROOMS = [

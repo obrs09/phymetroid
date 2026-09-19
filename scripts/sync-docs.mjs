@@ -13,6 +13,7 @@ const src = join(root, 'src');
 const docsSrc = join(root, 'docs', 'src');
 
 mkdirSync(join(docsSrc, 'scenes'), { recursive: true });
+mkdirSync(join(docsSrc, 'design'), { recursive: true });
 
 function copyAndPatch(rel, fromPhaser, toPhaser) {
   const from = join(src, rel);
@@ -29,6 +30,8 @@ copyAndPatch('gravity.js', '', '');
 copyAndPatch('worldSolids.js', '', '');
 copyAndPatch('mapContents.js', '', '');
 copyAndPatch('gravityFlash.js', '', '');
+copyAndPatch('design/default-v4.json', '', '');
+copyAndPatch('design/defaultV4.js', '', '');
 copyAndPatch('designConfig.js', '', '');
 copyAndPatch('runState.js', '', '');
 copyAndPatch('viewport.js', '', '');

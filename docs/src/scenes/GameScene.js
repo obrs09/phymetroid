@@ -54,6 +54,13 @@ const PICKUP_COLORS = {
   surfaceWalkOrb: { fill: 0x80deea, stroke: 0xe0f7fa },
 };
 
+function parseHexColor(hex, fallback) {
+  if (typeof hex !== 'string') return fallback;
+  const m = hex.trim().replace('#', '');
+  if (!/^[0-9a-fA-F]{6}$/.test(m)) return fallback;
+  return Number.parseInt(m, 16);
+}
+
 /**
  * Metroidvania prototype:
  * float → gravityFall (falling body) → cardinal gravity to R2 → flip up into R4
@@ -489,7 +496,11 @@ export class GameScene extends Phaser.Scene {
   }
 
   createPickup(spec) {
-    const colors = PICKUP_COLORS[spec.id] || { fill: 0xffeb3b, stroke: 0xfff59d };
+    const preset = PICKUP_COLORS[spec.id] || { fill: 0xffeb3b, stroke: 0xfff59d };
+    const colors = {
+      fill: parseHexColor(spec.color, preset.fill),
+      stroke: preset.stroke,
+    };
     const key = `pickup_${spec.id}`;
     if (!this.textures.exists(key)) {
       const g = this.make.graphics({ x: 0, y: 0, add: false });

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Schema v3 contract checks (no Phaser). Run: npm run test:schema
+ * Schema v4 contract checks (no Phaser). Run: npm run test:schema
  */
 import assert from 'node:assert/strict';
 import {
@@ -17,7 +17,9 @@ import {
   getProgressDesign,
   getRooms,
   resetDesignToDefaults,
+  validateDesignGraph,
 } from '../src/designConfig.js';
+import { ROOMS } from '../src/rooms.js';
 import {
   composeVelocity,
   downArrowRotation,
@@ -32,7 +34,10 @@ import { describeMapContents, describeRoomMapContents } from '../src/mapContents
 import {
   corridorJoinIsSealed,
   corridorJoinXs,
+  countRoomSourceSolids,
   listWorldSolidRects,
+  solidToWorldRect,
+  splitRectAroundGate,
 } from '../src/worldSolids.js';
 import {
   ABILITY,
@@ -53,10 +58,10 @@ function section(name, fn) {
 resetDesignToDefaults();
 resetRun();
 
-section('schemaVersion 3 export shape', () => {
+section('schemaVersion 4 export shape', () => {
   const dump = buildExportPayload();
-  assert.equal(dump.schemaVersion, 3);
-  assert.equal(SCHEMA_VERSION, 3);
+  assert.equal(dump.schemaVersion, 4);
+  assert.equal(SCHEMA_VERSION, 4);
   assert.equal(dump.game, 'phymetroid');
   assert.equal(dump.logicalW, 640);
   assert.equal(dump.logicalH, 360);
@@ -114,6 +119,122 @@ section('rooms / pickups / gates coords', () => {
   const gate = getGates().find((g) => g.id === 'gate_R2_to_R4');
   assert.deepEqual(gate.world, { x: 1520, y: 0, w: 80, h: 16 });
   assert.equal(gate.requireAbility, 'gravityFall');
+  const pit = getGates().find((g) => g.id === 'gate_R1_to_R3');
+  assert.deepEqual(pit.world, { x: 800, y: 360, w: 80, h: 16 });
+});
+
+section('v4 rooms[].solids source counts + local/world math', () => {
+  const rooms = getRooms();
+  assert.deepEqual(countRoomSourceSolids(rooms), { R0: 5, R1: 6, R2: 7, R3: 7, R4: 7 });
+  const r4 = rooms.find((r) => r.id === 'R4');
+  assert.equal(r4.y, -360);
+  const floor = r4.solids.find((s) => s.id === 'R4_floor');
+  assert.equal(floor.space, 'local');
+  assert.deepEqual(solidToWorldRect(r4, floor), { x: 1280, y: -32, w: 640, h: 32 });
+  const r2 = rooms.find((r) => r.id === 'R2');
+  const door = r2.solids.find((s) => s.id === 'R2_doorframe');
+  assert.equal(door.space, 'world');
+  assert.deepEqual(solidToWorldRect(r2, door), { x: 1496, y: 16, w: 24, h: 312 });
+  assert.equal(r2.solids.find((s) => s.id === 'R2_ceil').gapGateId, 'gate_R2_to_R4');
+  assert.equal(floor.gapGateId, 'gate_R2_to_R4');
+});
+
+section('gapGateId cuts R2 ceiling / R4 floor at gate_R2_to_R4', () => {
+  const rects = listWorldSolidRects(getRooms(), getGates());
+  const covers = (x, y) => rects.some((r) => x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h);
+  assert.equal(covers(1560, 8), false, 'R2 ceiling hole at gate');
+  assert.equal(covers(1560, -16), false, 'R4 floor hole at gate');
+  assert.equal(covers(1400, 8), true, 'R2 ceiling left remains');
+  assert.equal(covers(1700, 8), true, 'R2 ceiling right remains');
+  assert.equal(covers(1400, -16), true, 'R4 floor left remains');
+  const door = rects.find((r) => r.tag === 'doorframe' || (r.x === 1496 && r.w === 24 && r.h === 312));
+  assert.ok(door, 'R2_doorframe world rect present');
+  assert.deepEqual({ x: door.x, y: door.y, w: door.w, h: door.h }, { x: 1496, y: 16, w: 24, h: 312 });
+  const split = splitRectAroundGate({ x: 1280, y: 0, w: 640, h: 16 }, { x: 1520, y: 0, w: 80, h: 16 });
+  assert.deepEqual(split, [
+    { x: 1280, y: 0, w: 240, h: 16 },
+    { x: 1600, y: 0, w: 320, h: 16 },
+  ]);
+});
+
+section('v3 rooms without solids fall back to hardcode', () => {
+  applyDesignConfig({
+    schemaVersion: 3,
+    logicalW: 640,
+    logicalH: 360,
+    sections: { rooms: ROOMS.map((r) => ({ ...r })) },
+  });
+  const rooms = getRooms();
+  assert.equal(rooms.find((r) => r.id === 'R0').solids, undefined);
+  assert.deepEqual(countRoomSourceSolids(rooms), { R0: 0, R1: 0, R2: 0, R3: 0, R4: 0 });
+  const rects = listWorldSolidRects(rooms, getGates());
+  const joins = corridorJoinXs(rooms);
+  assert.deepEqual(joins, [640, 1280]);
+  for (const x of joins) {
+    assert.equal(corridorJoinIsSealed(rects, x), false, `v3 fallback join x=${x} sealed`);
+  }
+  const mergedFloor = rects.find((r) => r.tag === 'floor' && r.x < 1280 && r.x + r.w > 1280);
+  assert.ok(mergedFloor, 'v3 fallback still merges R1|R2 floor');
+  resetDesignToDefaults();
+  assert.equal(getRooms().find((r) => r.id === 'R0').solids.length, 5);
+});
+
+section('design graph validation logs, does not throw', () => {
+  assert.deepEqual(validateDesignGraph(), []);
+  const errors = [];
+  const orig = console.error;
+  console.error = (msg) => errors.push(String(msg));
+  try {
+    applyDesignConfig({
+      schemaVersion: 4,
+      logicalW: 640,
+      logicalH: 360,
+      sections: {
+        pickups: [{ id: 'ghost', roomId: 'NOPE', x: 0, y: 0 }],
+        gates: [{ id: 'broken', fromRoomId: '', toRoomId: 'NOPE' }],
+        rooms: [
+          {
+            id: 'R0',
+            x: 0,
+            y: 0,
+            w: 640,
+            h: 360,
+            solids: [{ id: 'bad', kind: 'floor', x: 0, y: 0, w: 8, h: 8, gapGateId: 'missing_gate' }],
+          },
+        ],
+      },
+    });
+  } finally {
+    console.error = orig;
+  }
+  const graph = validateDesignGraph();
+  assert.ok(graph.some((e) => e.includes('ghost') && e.includes('NOPE')));
+  assert.ok(graph.some((e) => e.includes('broken') && e.includes('fromRoomId')));
+  assert.ok(graph.some((e) => e.includes('gapGateId') && e.includes('missing_gate')));
+  assert.ok(errors.some((e) => e.includes('design validation')));
+  resetDesignToDefaults();
+});
+
+section('feel alias maps without renaming F1 keys', () => {
+  applyDesignConfig({
+    schemaVersion: 4,
+    sections: { feel: { walkSpeed: 200, gravY: 1800 } },
+  });
+  const feel = getFeel();
+  assert.equal(feel.moveSpeed, 200);
+  assert.equal(feel.gravityY, 1800);
+  assert.deepEqual(Object.keys(feel), [
+    'moveSpeed',
+    'airControl',
+    'jumpVelocity',
+    'jumpCutMultiplier',
+    'gravityY',
+    'maxFallSpeed',
+    'coyoteMs',
+    'jumpBufferMs',
+    'floatNudge',
+  ]);
+  resetDesignToDefaults();
 });
 
 section('legacy gravity → gravityFall', () => {
@@ -280,4 +401,4 @@ section('abilities design not mixed into feel', () => {
   assert.ok(getAbilitiesDesign().gravityFall.tier === 'I');
 });
 
-console.log('\nAll schema v3 contract checks passed.');
+console.log('\nAll schema v4 contract checks passed.');

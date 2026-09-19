@@ -21,15 +21,18 @@
  * Programmatic import: window.__PHYMETROID_APPLY_DESIGN__(objOrJson)
  * or applyDesignConfig(obj). The future 策划 bot can write this same JSON.
  *
- * schemaVersion 3 adds gravity, abilities, rooms, pickups, gates, and
- * progress.abilityPhases / pathIntent. v1 feel-only and v2 player/progress
- * dumps still import. Legacy ability id `gravity` maps to `gravityFall`.
+ * schemaVersion 4 adds rooms[].solids (explicit rects, default space:local,
+ * optional space:world + gapGateId). v3 dumps without solids still import:
+ * engine falls back to worldSolids.js hardcode. v1 feel-only and v2
+ * player/progress dumps still import. Legacy ability id `gravity` maps to
+ * `gravityFall`. Feel debugger keys are unchanged.
  */
 
 import { GAME_H, GAME_W, ROOMS, WORLD_SCALE } from './rooms.js';
 import { CARDINAL_AXES, isCardinal, normalizeDown } from './gravity.js';
+import DEFAULT_V4 from './design/defaultV4.js';
 
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 export const GAME_ID = 'phymetroid';
 export const DESIGN_STORAGE_KEY = 'phymetroid.designConfig';
 
@@ -76,6 +79,23 @@ export const ABILITY_UNLOCK_ORDER = Object.freeze([
 
 const LEGACY_ABILITY_MAP = Object.freeze({
   gravity: ABILITY_ID.GRAVITY_FALL,
+});
+
+/** 策划 feel aliases → F1 debugger keys. Never rename FEEL_FIELDS. */
+const FEEL_KEY_ALIASES = Object.freeze({
+  walkSpeed: 'moveSpeed',
+  move_speed: 'moveSpeed',
+  air_control: 'airControl',
+  jumpVel: 'jumpVelocity',
+  jumpSpeed: 'jumpVelocity',
+  jump_velocity: 'jumpVelocity',
+  jumpCut: 'jumpCutMultiplier',
+  gravY: 'gravityY',
+  gravityStrength: 'gravityY',
+  maxFall: 'maxFallSpeed',
+  coyote: 'coyoteMs',
+  jumpBuffer: 'jumpBufferMs',
+  float_nudge: 'floatNudge',
 });
 
 export function canonicalAbilityId(id) {
@@ -207,6 +227,7 @@ export const PICKUP_DESIGN_DEFAULTS = Object.freeze([
     roomId: 'R0',
     x: 256,
     y: 136,
+    color: '#ffeb3b',
     requires: Object.freeze([]),
     onCollect: Object.freeze({
       unlockAbility: ABILITY_ID.GRAVITY_FALL,
@@ -221,6 +242,7 @@ export const PICKUP_DESIGN_DEFAULTS = Object.freeze([
     roomId: 'R4',
     x: 1320,
     y: -320,
+    color: '#80cbc4',
     requires: Object.freeze([ABILITY_ID.GRAVITY_FALL]),
     onCollect: Object.freeze({
       unlockAbility: ABILITY_ID.SURFACE_WALK,
@@ -246,6 +268,7 @@ export const GATE_DESIGN_DEFAULTS = Object.freeze([
     toRoomId: 'R3',
     kind: 'floorGap',
     requireAbility: ABILITY_ID.GRAVITY_FALL,
+    world: Object.freeze({ x: 800, y: 360, w: 80, h: 16 }),
   }),
 ]);
 
@@ -255,14 +278,20 @@ export const INTENT_DEFAULTS = Object.freeze({
 });
 
 export const COMPAT_DEFAULTS = Object.freeze({
-  fromSchemaVersion: 2,
+  fromSchemaVersion: 3,
   notes: Object.freeze([
-    'v1/v2 feel + player(maxHp/starting*) + progress(phase*) keys still valid; unknown sections ignored by older importers.',
+    'v4 adds rooms[].solids (explicit rects, default space:local). No macros in v4.',
+    'v3 dumps without solids still import: engine falls back to worldSolids.js hardcode.',
+    'pickups/gates remain the only pickup/gate source of truth; solids may reference gates via gapGateId.',
+    'world = room.x/y + local; space:world allowed for cross-room pieces (e.g. doorframe).',
+    'Unknown solid.kind → treat as custom/block. Corridor shared vertical walls omitted; engine skips join seals.',
+    'Pixel feel already WORLD_SCALE×2; do not re-scale. Feel debugger keys unchanged.',
     "Ability id rename: runtime ABILITY.GRAVITY / 'gravity' → 'gravityFall'. Map on import for old saves.",
-    'Pixel feel numbers are already WORLD_SCALE×2 (640×360). Do not re-scale v3 dumps.',
-    'New sections in v3: gravity, abilities, rooms, pickups, gates. progress gains abilityPhases + pathIntent.',
   ]),
 });
+
+/** Baked v4 rooms (with solids) from 数值策划. AABB-only ROOMS is the v3 fallback. */
+export const ROOM_DESIGN_DEFAULTS = DEFAULT_V4.sections.rooms;
 
 /** @type {Set<(feel: ReturnType<typeof getFeel>) => void>} */
 const listeners = new Set();
@@ -332,7 +361,7 @@ function cloneAbilities(src = ABILITY_DESIGN_DEFAULTS) {
   return next;
 }
 
-function cloneRooms(src = ROOMS) {
+function cloneRooms(src = ROOM_DESIGN_DEFAULTS) {
   return sanitizeRooms(src);
 }
 
@@ -373,11 +402,21 @@ function clampFeelValue(key, raw) {
   return n;
 }
 
+function remapFeelPatch(patch) {
+  if (!patch || typeof patch !== 'object') return patch;
+  const out = { ...patch };
+  for (const [alias, key] of Object.entries(FEEL_KEY_ALIASES)) {
+    if (out[key] === undefined && out[alias] !== undefined) out[key] = out[alias];
+  }
+  return out;
+}
+
 function sanitizeFeel(patch) {
   const next = cloneFeel(state.sections.feel);
-  if (!patch || typeof patch !== 'object') return next;
+  const src = remapFeelPatch(patch);
+  if (!src || typeof src !== 'object') return next;
   for (const key of Object.keys(FEEL_DEFAULTS)) {
-    if (patch[key] !== undefined) next[key] = clampFeelValue(key, patch[key]);
+    if (src[key] !== undefined) next[key] = clampFeelValue(key, src[key]);
   }
   return next;
 }
@@ -579,8 +618,27 @@ function sanitizeAbilities(patch) {
   return cloneAbilities(patch && typeof patch === 'object' ? patch : state.sections.abilities);
 }
 
+function sanitizeSolid(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const x = Number(raw.x);
+  const y = Number(raw.y);
+  const w = Number(raw.w);
+  const h = Number(raw.h);
+  if (![x, y, w, h].every(Number.isFinite) || w <= 0 || h <= 0) return null;
+  const kind = typeof raw.kind === 'string' && raw.kind.trim() ? raw.kind.trim() : 'custom';
+  const space = raw.space === 'world' ? 'world' : 'local';
+  const solid = { x, y, w, h, kind, space };
+  if (typeof raw.id === 'string' && raw.id.trim()) solid.id = raw.id.trim();
+  if (typeof raw.gapGateId === 'string' && raw.gapGateId.trim()) {
+    solid.gapGateId = raw.gapGateId.trim();
+  }
+  if (raw.fixed !== undefined) solid.fixed = raw.fixed !== false;
+  return solid;
+}
+
 function sanitizeRooms(list) {
-  const src = Array.isArray(list) && list.length ? list : ROOMS;
+  const fallback = ROOM_DESIGN_DEFAULTS;
+  const src = Array.isArray(list) && list.length ? list : fallback;
   const rooms = [];
   const seen = new Set();
   for (const raw of src) {
@@ -595,9 +653,14 @@ function sanitizeRooms(list) {
     seen.add(id);
     const room = { id, x, y, w, h };
     if (typeof raw.role === 'string' && raw.role.trim()) room.role = raw.role.trim();
+    if (typeof raw.intent === 'string' && raw.intent.trim()) room.intent = raw.intent.trim();
+    if (Array.isArray(raw.solids)) {
+      const solids = raw.solids.map(sanitizeSolid).filter(Boolean);
+      if (solids.length) room.solids = solids;
+    }
     rooms.push(room);
   }
-  return rooms.length ? rooms : ROOMS.map((r) => ({ ...r }));
+  return rooms.length ? rooms : fallback.map((r) => ({ ...r, solids: r.solids ? r.solids.map((s) => ({ ...s })) : undefined }));
 }
 
 function sanitizeOnCollect(raw) {
@@ -630,7 +693,7 @@ function sanitizePickups(list) {
     if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
     seen.add(id);
     const requires = sanitizeAbilityList(raw.requires);
-    pickups.push({
+    const pickup = {
       id,
       ability: canonicalAbilityId(raw.ability) || id,
       roomId: typeof raw.roomId === 'string' ? raw.roomId.trim() : '',
@@ -638,7 +701,9 @@ function sanitizePickups(list) {
       y,
       requires: requires ?? [],
       onCollect: sanitizeOnCollect(raw.onCollect),
-    });
+    };
+    if (typeof raw.color === 'string' && raw.color.trim()) pickup.color = raw.color.trim();
+    pickups.push(pickup);
   }
   return pickups;
 }
@@ -669,6 +734,47 @@ function sanitizeGates(list) {
     gates.push(gate);
   }
   return gates;
+}
+
+/**
+ * Graph checks for a 策划 dump. Logs errors; never throws (boot stays up).
+ * @returns {string[]}
+ */
+export function validateDesignGraph(sections = state.sections) {
+  const errors = [];
+  const rooms = Array.isArray(sections?.rooms) ? sections.rooms : [];
+  const pickups = Array.isArray(sections?.pickups) ? sections.pickups : [];
+  const gates = Array.isArray(sections?.gates) ? sections.gates : [];
+  const roomIds = new Set(rooms.map((r) => r.id).filter(Boolean));
+  const gateIds = new Set(gates.map((g) => g.id).filter(Boolean));
+
+  for (const p of pickups) {
+    if (p.roomId && !roomIds.has(p.roomId)) {
+      errors.push(`pickup "${p.id}" references missing roomId "${p.roomId}"`);
+    }
+  }
+  for (const g of gates) {
+    if (!g.fromRoomId || !roomIds.has(g.fromRoomId)) {
+      errors.push(`gate "${g.id}" missing fromRoomId "${g.fromRoomId || ''}"`);
+    }
+    if (!g.toRoomId || !roomIds.has(g.toRoomId)) {
+      errors.push(`gate "${g.id}" missing toRoomId "${g.toRoomId || ''}"`);
+    }
+  }
+  for (const room of rooms) {
+    for (const s of room.solids || []) {
+      if (s.gapGateId && !gateIds.has(s.gapGateId)) {
+        errors.push(`solid "${s.id || '?'}" in ${room.id} references missing gapGateId "${s.gapGateId}"`);
+      }
+    }
+  }
+  return errors;
+}
+
+function logDesignValidation(errors) {
+  for (const msg of errors) {
+    console.error(`[phymetroid] design validation: ${msg}`);
+  }
 }
 
 function notify() {
@@ -734,6 +840,7 @@ function applyImportedObject(obj) {
   if (Array.isArray(gates)) {
     state.sections.gates = sanitizeGates(gates);
   }
+  logDesignValidation(validateDesignGraph(state.sections));
 }
 
 function loadFromStorage() {
@@ -807,7 +914,10 @@ export function getAbilityDesign(id) {
 }
 
 export function getRooms() {
-  return state.sections.rooms.map((r) => ({ ...r }));
+  return state.sections.rooms.map((r) => ({
+    ...r,
+    solids: r.solids ? r.solids.map((s) => ({ ...s })) : undefined,
+  }));
 }
 
 export function getPickups() {
@@ -931,7 +1041,7 @@ function exportGravity() {
   };
 }
 
-/** Bot-friendly export payload (stable key order). schemaVersion 3. */
+/** Bot-friendly export payload (stable key order). schemaVersion 4. */
 export function buildExportPayload(date = new Date()) {
   const feel = getFeel();
   const player = getPlayerDesign();
@@ -989,10 +1099,11 @@ export function buildExportPayload(date = new Date()) {
 }
 
 /**
- * Apply a full dump or `{ sections: { feel, player, progress, ... } }`.
+ * Apply a full dump or `{ sections: { feel, player, progress, rooms, ... } }`.
  * Unknown keys are ignored; missing sections / keys keep current values.
- * v1 feel-only and v2 player/progress JSON are valid.
+ * v1 feel-only, v2 player/progress, and v3 (no solids) JSON are valid.
  * Legacy ability id `gravity` maps to `gravityFall`. Feel numbers are not re-scaled.
+ * Graph errors (missing roomId / gate / gapGateId) are logged, not thrown.
  * @param {object|string} input
  */
 export function applyDesignConfig(input) {
@@ -1048,4 +1159,5 @@ export async function downloadDesignJson() {
 if (typeof window !== 'undefined') {
   window.__PHYMETROID_APPLY_DESIGN__ = applyDesignConfig;
   window.__PHYMETROID_GET_DESIGN__ = buildExportPayload;
+  window.__PHYMETROID_VALIDATE_DESIGN__ = () => validateDesignGraph();
 }
