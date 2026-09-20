@@ -112,8 +112,7 @@ export class GameScene extends Phaser.Scene {
     this.pickupGroup = this.physics.add.group();
     this.spawnPickups();
 
-    this.physics.add.collider(this.player, this.solids);
-    this.physics.add.overlap(this.player, this.pickupGroup, this.onPickup, null, this);
+    this.bindPlayerPhysics();
 
     this.cursors = this.input.keyboard.createCursorKeys();
     this.input.keyboard.addCapture([Phaser.Input.Keyboard.KeyCodes.F1]);
@@ -284,6 +283,13 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
+  bindPlayerPhysics() {
+    this.solidCollider?.destroy();
+    this.pickupOverlap?.destroy();
+    this.solidCollider = this.physics.add.collider(this.player, this.solids);
+    this.pickupOverlap = this.physics.add.overlap(this.player, this.pickupGroup, this.onPickup, null, this);
+  }
+
   destroyRoomBackgrounds() {
     for (const obj of this.roomLayer || []) {
       obj?.destroy?.();
@@ -301,12 +307,13 @@ export class GameScene extends Phaser.Scene {
     this.solids.clear(true, true);
     buildWorldSolids(this, this.solids, rooms, getGates());
     if (this.pickupGroup) {
-      for (const child of this.pickupGroup.getChildren()) {
+      for (const child of [...this.pickupGroup.getChildren()]) {
         this.tweens.killTweensOf(child);
       }
       this.pickupGroup.clear(true, true);
       this.spawnPickups();
     }
+    this.bindPlayerPhysics();
     const mapWasOn = this.mapVisible;
     if (this.mapRoot) {
       this.mapRoot.destroy(true);
