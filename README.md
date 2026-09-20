@@ -23,7 +23,8 @@ Phaser 3 + Vite 独立游戏原型：漂浮开场 → **gravityFall**（落体�
 | `[` `]` or `-` `=` or ← → | Adjust selected field; hold **Shift** for a larger step / 调整数值，Shift 大步进 |
 | Click row / `+` `-` | Select field or nudge with the mouse / 鼠标选中或加减 |
 | E (debugger open) | Export design JSON (download + clipboard) / 导出策划 JSON |
-| R (debugger open) | Reset feel values to defaults / 恢复默认手感 |
+| R (debugger open) | Reset feel + layout draft to bundled default / 恢复默认手感与关卡草稿 |
+| LEVEL EDIT (debugger open) | Toggle in-game room/wall/pickup/gate editor / 开关关卡编辑 |
 
 **Before gravityFall:** player floats; no walk/jump (only a gentle air nudge with A/D to reach the yellow orb). Touch it → unlocks `gravityFall` (legacy id `gravity` maps on import), snaps down to **down**, phase `intro` → `exploration`, banner `GRAVITY ON`. You are a **falling body**: no walk, jump, wall-slide, ceiling crawl, or fly. Change cardinal down only while supported.
 
@@ -113,6 +114,24 @@ Pre-640×360 `localStorage` feel dumps (no `logicalW`/`logicalH`) are ignored so
 Live values live in `src/designConfig.js` (`getFeel()` / `applyFeel(patch)`). Opening the F1 panel lists every feel field (**keys unchanged**); changing a value applies immediately. After gravityFall, `gravityY` is the **vector magnitude** applied as Arcade `world.gravity` on the current down axis (camera is not rotated). Tweaks persist in `localStorage` under `phymetroid.designConfig` until you press **R** to reset.
 
 手感数值集中在 `src/designConfig.js`。F1 手感键未改。重力开启后 `gravityY` 是矢量大小，沿当前 down 写入 Arcade 世界重力，镜头不转。调整写入 `localStorage`，**R** 清回默认。
+
+## Level editor / 关卡编辑（F1）
+
+Open the feel debugger (**F1** / `` ` ``), then click **LEVEL EDIT: OFF** (top-right of the panel) to turn the in-game editor on.
+
+打开手感调试后，点面板右上角 **LEVEL EDIT** 即可边玩边摆房间。
+
+1. Editor mode shrinks the F1 overlay so the world stays visible. Physics stays **live** (walk / jump / existing Shift+1–7 warps); gravity rotate (Q/E) stays blocked while the debugger is open.
+2. Bottom strip tools: **Select | Room | Wall | Pickup | Gate | Delete**. Click-drag rooms / walls / gates (axis-aligned, snap 8 or 16). Click to place an ability orb. Select + drag moves; corner handles resize; **Del** deletes.
+3. Room ids auto-increment (`R7`, `R8`…). Solids are stored **local** to the current room (`space: "local"`), matching `default-v4.json`. Optional `gapGateId` on a wall. Pickups use the same ability strings as the dump (`gravityFall` / `surfaceWalk` / `reactionJump` / `gravityField`) plus the default `requires` / `onCollect` for that orb. Gates use `fromRoomId` / `toRoomId` / `kind` / `requireAbility` / optional `world`.
+4. Each finished edit **Apply**s through `applyDesignConfig` (same path as a 策划 dump) and rebuilds solids / pickups / gates immediately. Drafts persist in `localStorage` key `phymetroid.designConfig`. **Reset to bundled default** (or **R**) clears the draft.
+5. **Copy level JSON** / **Download level JSON** dump the **full** schemaVersion 4 contract (rooms + solids + pickups + gates + feel + `layoutRevision`). **E** is still the existing feel/design export — same payload, not broken. Export **sets** `layoutRevision` to the current contract (**5**); it does **not** bump the constant per edit. Only incompatible baked-solid migrations bump that number.
+
+Hotkeys while Level edit is on: **Tab** cycle tool, **G** cycle grid, **Del** erase selection, **1–4** / **Shift+1–7** cheats still work. Camera never rotates.
+
+Do **not** bake corridor-join slabs as solids — shared R0–R2–R5–R6 walls stay an engine pass.
+
+给数值策划：F1 → LEVEL EDIT → 摆好后 Copy/Download JSON，直接喂现有 designConfig 导入。
 
 ## Design JSON / 策划 bot 契约
 
@@ -226,6 +245,8 @@ src/viewport.js        # integer zoom + CSS fill + F fullscreen
 src/scaleZoom.js       # computeIntegerZoom / leftover CSS fill
 src/designConfig.js    # feel + player/progress design + export/import
 src/feelDebugPanel.js  # F1 debugger UI
+src/levelEditor.js     # F1 level-edit helpers (schema-safe, no Phaser)
+src/levelEditorView.js # F1 level-edit overlay + HTML strip
 src/hudText.js         # sharper HUD / debugger / map labels
 docs/                  # GitHub Pages root (CDN + docs/src)
 ```

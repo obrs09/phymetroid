@@ -39,6 +39,8 @@ copyAndPatch('runHud.js', '', '');
 copyAndPatch('hudText.js', "import Phaser from 'phaser';", "import Phaser from './phaser-shim.js';");
 copyAndPatch('player.js', "import Phaser from 'phaser';", "import Phaser from './phaser-shim.js';");
 copyAndPatch('feelDebugPanel.js', "import Phaser from 'phaser';", "import Phaser from './phaser-shim.js';");
+copyAndPatch('levelEditor.js', '', '');
+copyAndPatch('levelEditorView.js', '', '');
 copyAndPatch(
   'scenes/GameScene.js',
   "import Phaser from 'phaser';",

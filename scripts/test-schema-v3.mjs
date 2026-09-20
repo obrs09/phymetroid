@@ -22,6 +22,20 @@ import {
   resetDesignToDefaults,
   validateDesignGraph,
 } from '../src/designConfig.js';
+import {
+  applyWorldRectToSelection,
+  commitLayout,
+  deleteSelection,
+  fourWallsForRoom,
+  hitTestEditor,
+  makeGate,
+  makePickup,
+  makeRoom,
+  makeSolidLocal,
+  nextRoomId,
+  snapToGrid,
+  worldToLocal,
+} from '../src/levelEditor.js';
 import { ROOMS } from '../src/rooms.js';
 import {
   canonicalizeDown,
@@ -814,6 +828,88 @@ section('abilities design not mixed into feel', () => {
   assert.ok(!feelKeys.includes('canWalk'));
   assert.ok(!feelKeys.includes('gravityFall'));
   assert.ok(getAbilitiesDesign().gravityFall.tier === 'I');
+});
+
+section('level editor helpers snap / ids / local solids', () => {
+  assert.equal(snapToGrid(17, 16), 16);
+  assert.equal(snapToGrid(25, 8), 24);
+  const rooms = getRooms();
+  assert.equal(nextRoomId(rooms), 'R7');
+  const room = makeRoom({ x: 3200, y: 0, w: 640, h: 360 }, rooms, { autoWalls: false });
+  assert.equal(room.id, 'R7');
+  assert.deepEqual({ x: room.x, y: room.y, w: room.w, h: room.h }, { x: 3200, y: 0, w: 640, h: 360 });
+  const walls = fourWallsForRoom(room);
+  assert.equal(walls.length, 4);
+  assert.equal(walls[0].space, 'local');
+  assert.equal(walls[0].kind, 'floor');
+  const wall = makeSolidLocal(room, { x: 3216, y: 16, w: 32, h: 64 }, { kind: 'wall' });
+  assert.equal(wall.space, 'local');
+  assert.deepEqual(worldToLocal(room, { x: 3216, y: 16, w: 32, h: 64 }), { x: 16, y: 16, w: 32, h: 64 });
+  assert.deepEqual({ x: wall.x, y: wall.y, w: wall.w, h: wall.h }, { x: 16, y: 16, w: 32, h: 64 });
+});
+
+section('level editor round-trip: room + walls + pickup + gate validates', () => {
+  resetDesignToDefaults();
+  const rooms = getRooms();
+  const pickups = getPickups();
+  const gates = getGates();
+  const room = makeRoom({ x: 3200, y: 0, w: 640, h: 360 }, rooms, { autoWalls: true });
+  assert.equal(room.solids.length, 4);
+  rooms.push(room);
+  const extra = makeSolidLocal(room, { x: 3360, y: 200, w: 96, h: 16 }, { kind: 'plat' });
+  room.solids.push(extra);
+  const pickup = makePickup(3400, 180, 'reactionJump', rooms, pickups);
+  assert.equal(pickup.ability, 'reactionJump');
+  assert.equal(pickup.roomId, 'R7');
+  assert.deepEqual(pickup.requires, ['surfaceWalk']);
+  assert.equal(pickup.onCollect.unlockAbility, 'reactionJump');
+  pickups.push(pickup);
+  const gate = makeGate(
+    { x: 3184, y: 200, w: 32, h: 80 },
+    rooms,
+    gates,
+    { kind: 'corridorJoin', requireAbility: 'reactionJump', fromRoomId: 'R6', toRoomId: 'R7' }
+  );
+  assert.equal(gate.fromRoomId, 'R6');
+  assert.equal(gate.toRoomId, 'R7');
+  assert.equal(gate.kind, 'corridorJoin');
+  assert.deepEqual(gate.world, { x: 3184, y: 200, w: 32, h: 80 });
+  gates.push(gate);
+
+  const dump = commitLayout({ rooms, pickups, gates });
+  assert.equal(dump.schemaVersion, 4);
+  assert.equal(dump.layoutRevision, 5);
+  assert.ok(dump.sections.feel.moveSpeed);
+  assert.deepEqual(validateDesignGraph(dump.sections), []);
+  const r7 = getRooms().find((r) => r.id === 'R7');
+  assert.ok(r7);
+  assert.equal(r7.solids.filter((s) => s.space === 'local').length, r7.solids.length);
+  assert.ok(r7.solids.some((s) => s.id === 'R7_floor' && s.kind === 'floor'));
+  assert.ok(r7.solids.some((s) => s.id === extra.id && s.kind === 'plat' && s.x === 160));
+  const orb = getPickups().find((p) => p.id === pickup.id);
+  assert.equal(orb.x, 3400);
+  assert.equal(orb.y, 180);
+  const g = getGates().find((x) => x.id === gate.id);
+  assert.equal(g.requireAbility, 'reactionJump');
+  // Engine still owns corridor merge — editor did not invent join slabs.
+  assert.equal(r7.solids.some((s) => s.kind === 'corridorJoin'), false);
+
+  const snap = { rooms: getRooms(), pickups: getPickups(), gates: getGates() };
+  const hitPlat = hitTestEditor(snap.rooms, snap.pickups, snap.gates, 3408, 208);
+  assert.equal(hitPlat?.type, 'solid');
+  assert.equal(hitPlat?.solid?.id, extra.id);
+  const hitOrb = hitTestEditor(snap.rooms, snap.pickups, snap.gates, 3400, 180);
+  assert.equal(hitOrb?.type, 'pickup');
+
+  applyWorldRectToSelection(hitPlat, { x: 3376, y: 216, w: 96, h: 16 }, snap.rooms, snap.pickups);
+  const moved = snap.rooms.find((r) => r.id === 'R7').solids.find((s) => s.id === extra.id);
+  assert.deepEqual({ x: moved.x, y: moved.y }, { x: 176, y: 216 });
+
+  const afterDel = deleteSelection(hitOrb, snap.rooms, snap.pickups, snap.gates);
+  assert.equal(afterDel.pickups.some((p) => p.id === pickup.id), false);
+  resetDesignToDefaults();
+  assert.equal(getRooms().some((r) => r.id === 'R7'), false);
+  assert.equal(getRooms().length, 7);
 });
 
 console.log('\nAll schema v4 contract checks passed.');

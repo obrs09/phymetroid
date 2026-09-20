@@ -506,6 +506,66 @@ check(
 );
 await page.evaluate(() => window.__PHYMETROID_DEBUG__.toggleFeel());
 
+// Level editor smoke (helpers + live apply). Resets so later imports stay clean.
+await page.evaluate(() => {
+  if (!window.__PHYMETROID_DEBUG__.editor()?.active) {
+    window.__PHYMETROID_DEBUG__.toggleFeel();
+  }
+  window.__PHYMETROID_DEBUG__.toggleLevelEdit();
+});
+await new Promise((r) => setTimeout(r, 150));
+const editorOn = await page.evaluate(() => window.__PHYMETROID_DEBUG__.editor());
+check('F1 level editor toggles on', editorOn?.active === true && editorOn.tool === 'select', JSON.stringify(editorOn));
+const editorAdd = await page.evaluate(() => {
+  const h = window.__PHYMETROID_EDITOR_HELPERS__;
+  const { rooms, pickups, gates } = h.snapshotLayout();
+  const room = h.makeRoom({ x: 3200, y: 0, w: 640, h: 360 }, rooms, { autoWalls: true });
+  rooms.push(room);
+  pickups.push(h.makePickup(3400, 180, 'gravityFall', rooms, pickups));
+  gates.push(
+    h.makeGate({ x: 3184, y: 200, w: 32, h: 80 }, rooms, gates, {
+      kind: 'corridorJoin',
+      fromRoomId: 'R6',
+      toRoomId: 'R7',
+      requireAbility: 'gravityFall',
+    })
+  );
+  h.commitLayout({ rooms, pickups, gates });
+  const dump = h.exportPayload();
+  return {
+    r7: dump.sections.rooms.find((r) => r.id === 'R7'),
+    errors: h.validate(),
+    rev: dump.layoutRevision,
+    schema: dump.schemaVersion,
+    cam: window.__PHYMETROID_DEBUG__.camRotation(),
+  };
+});
+check(
+  'editor R7 + walls + orb + gate validates',
+  editorAdd.r7?.solids?.length === 4 &&
+    editorAdd.errors?.length === 0 &&
+    editorAdd.schema === 4 &&
+    editorAdd.rev === 5 &&
+    editorAdd.cam === 0,
+  JSON.stringify({ solids: editorAdd.r7?.solids?.length, errors: editorAdd.errors, rev: editorAdd.rev })
+);
+const warpedR7 = await page.evaluate(() => window.__PHYMETROID_DEBUG__.warpRoom('R7'));
+check('warp into editor R7', warpedR7?.room === 'R7', JSON.stringify(warpedR7));
+await page.evaluate(() => {
+  window.__PHYMETROID_EDITOR_HELPERS__.reset();
+  window.__PHYMETROID_DEBUG__.toggleLevelEdit();
+  window.__PHYMETROID_DEBUG__.toggleFeel();
+});
+const afterEditorReset = await page.evaluate(() => ({
+  rooms: window.__PHYMETROID_GET_DESIGN__().sections.rooms.map((r) => r.id),
+  editor: window.__PHYMETROID_DEBUG__.editor(),
+}));
+check(
+  'editor reset restores R0-R6 and closes edit',
+  afterEditorReset.rooms.join(',') === 'R0,R1,R2,R3,R4,R5,R6' && afterEditorReset.editor?.active === false,
+  JSON.stringify(afterEditorReset)
+);
+
 // v2 import mapping
 const v2 = await page.evaluate(() => {
   window.__PHYMETROID_APPLY_DESIGN__({
