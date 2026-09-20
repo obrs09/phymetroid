@@ -371,6 +371,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   onEditorModeChange(active) {
+    this.hintText?.setVisible(!active);
     if (active) {
       if (this.physics.world.isPaused) this.physics.world.resume();
       return;
@@ -381,6 +382,7 @@ export class GameScene extends Phaser.Scene {
     }
     const room = findRoomAt(this.player.x, this.player.y, this.rooms()) || findRoomById(this.currentRoomId, this.rooms());
     if (room) this.snapCameraToRoom(room, true);
+    this.hintText?.setVisible(!this.debugVisible && !this.mapVisible);
   }
 
   drawRoomBackgrounds() {

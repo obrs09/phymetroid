@@ -268,6 +268,7 @@ export class FeelDebugPanel {
         row.plus.setVisible(false);
       });
       this.cheatText.setY(px(28));
+      this.cheatText.setVisible(false);
       this.helpText.setY(px(38));
       this.helpText.setVisible(false);
     } else {
@@ -281,6 +282,7 @@ export class FeelDebugPanel {
         row.plus.setVisible(true);
       });
       this.cheatText.setY(px(128));
+      this.cheatText.setVisible(true);
       this.helpText.setY(px(148));
       this.helpText.setVisible(true);
     }
@@ -290,11 +292,14 @@ export class FeelDebugPanel {
   }
 
   layoutEditorHud() {
+    // High-DPI editor resize must not balloon this 640-wide strip. The HTML
+    // overlay owns zoom/cursor/hotkeys at CSS pixels; Phaser chrome stays
+    // a compact top-left caption.
+    this.root.setScale(1);
     if (this.editorActive) {
-      const w = this.scene.scale?.width || GAME_W;
-      this.root.setScale(w / GAME_W);
-    } else {
-      this.root.setScale(1);
+      const w = Math.min(GAME_W, this.scene.scale?.width || GAME_W);
+      this.panel.setSize(w - px(8), px(40));
+      this.panel.setPosition(w / 2, px(24));
     }
   }
 

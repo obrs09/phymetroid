@@ -377,6 +377,7 @@ export class LevelEditor {
         <button type="button" data-act="one">1:1</button>
         <button type="button" data-act="undo">Undo</button>
         <button type="button" data-act="redo">Redo</button>
+        <button type="button" data-act="editOff">LEVEL EDIT OFF</button>
       </div>
       <div class="phy-ed-hud" data-ed="hudline" style="margin-bottom:4px;color:#c5e1a5"></div>
       <div class="phy-ed-keys" style="margin-bottom:4px;color:#90a4ae;font-size:11px">${CHEAT_SHEET}</div>
@@ -446,6 +447,9 @@ export class LevelEditor {
     el.querySelector('[data-act="redo"]').addEventListener('click', () => this.redo());
     el.querySelector('[data-act="snap8"]').addEventListener('click', () => this.setGrid(8));
     el.querySelector('[data-act="snap16"]').addEventListener('click', () => this.setGrid(16));
+    el.querySelector('[data-act="editOff"]').addEventListener('click', () => {
+      this.scene.debugPanel?.setEditorOn(false);
+    });
     el.addEventListener('pointerdown', (e) => e.stopPropagation());
     el.addEventListener('keydown', (e) => {
       e.stopPropagation();
