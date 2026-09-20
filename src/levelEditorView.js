@@ -1,6 +1,7 @@
 /**
  * Phaser + HTML mount for the F1 level editor.
  * Pure schema helpers live in levelEditor.js so Node schema tests stay Phaser-free.
+ * Zoom / pan / high-DPI math lives in levelEditorCamera.js.
  */
 
 import {
@@ -21,13 +22,16 @@ import {
   EDITOR_TOOLS,
   GATE_KIND_OPTIONS,
   HANDLE_SIZE,
+  LayoutHistory,
   MIN_ROOM,
   MIN_SOLID,
   PICKUP_TYPE_OPTIONS,
   SOLID_KIND_OPTIONS,
   applyWorldRectToSelection,
+  cloneLayoutSnapshot,
   commitLayout,
   deleteSelection,
+  effectiveGrid,
   handleAtPoint,
   hitTestEditor,
   makeGate,
@@ -40,15 +44,255 @@ import {
   selectionWorldRect,
   snapPoint,
   snapToGrid,
+  snapshotLayout,
   worldToLocal,
 } from './levelEditor.js';
-import { findRoomAt, GAME_H, GAME_W, UI_FONT_SM, px } from './rooms.js';
+import {
+  EDITOR_HANDLE_CSS_PX,
+  cameraZoomFromUserZoom,
+  clampEditorZoom,
+  computeEditorDisplaySize,
+  fitZoomForRect,
+  getDevicePixelRatio,
+  nextWheelZoom,
+  scrollAfterZoomToward,
+  worldHandlePad,
+} from './levelEditorCamera.js';
+import { findRoomAt, GAME_H, GAME_W, UI_FONT_SM, getWorldBounds, px } from './rooms.js';
+import { getViewSize } from './scaleZoom.js';
+import {
+  applyEditorViewport,
+  applyViewport,
+  clearEditorViewportClass,
+  setViewportRelayoutHook,
+} from './viewport.js';
 import { solidToWorldRect } from './worldSolids.js';
 
 function optionList(values, selected) {
   return values
     .map((v) => `<option value="${v}"${v === selected ? ' selected' : ''}>${v}</option>`)
     .join('');
+}
+
+const CHEAT_SHEET =
+  'Tab tool · G snap 8/16 · Alt no-snap · Wheel zoom · MMB/Space-drag pan · dbl-MMB Fit · 1:1 · Ctrl+Z undo · Ctrl+Y redo · E export';
+
+/**
+ * High-DPI canvas + free camera, only while LEVEL EDIT is on.
+ * Play mode keeps integer zoom + room-snap; this class restores that on exit.
+ */
+export class EditorView {
+  /**
+   * @param {import('phaser').Scene} scene
+   */
+  constructor(scene) {
+    this.scene = scene;
+    this.active = false;
+    this.userZoom = 1;
+    this.panning = false;
+    this.panLast = null;
+    this.lastMiddleAt = 0;
+    this.saved = null;
+    this.boundRelayout = () => this.relayout();
+    this.boundMiddleBlock = (e) => {
+      if (this.active && e.button === 1) e.preventDefault();
+    };
+  }
+
+  get dpr() {
+    return getDevicePixelRatio();
+  }
+
+  getState() {
+    const cam = this.scene.cameras.main;
+    const canvas = this.scene.game?.canvas;
+    return {
+      active: this.active,
+      userZoom: this.userZoom,
+      zoomPct: Math.round(this.userZoom * 100),
+      dpr: this.dpr,
+      gameW: this.scene.scale?.width,
+      gameH: this.scene.scale?.height,
+      canvasW: canvas?.width,
+      canvasH: canvas?.height,
+      camZoom: cam?.zoom,
+      scrollX: cam?.scrollX,
+      scrollY: cam?.scrollY,
+      panning: this.panning,
+    };
+  }
+
+  handlePad() {
+    return worldHandlePad(this.userZoom, EDITOR_HANDLE_CSS_PX);
+  }
+
+  enter() {
+    if (this.active) {
+      this.relayout();
+      return;
+    }
+    const game = this.scene.game;
+    const cam = this.scene.cameras.main;
+    this.saved = {
+      scaleZoom: game.scale.zoom,
+      gameW: game.scale.width,
+      gameH: game.scale.height,
+      camZoom: cam.zoom,
+      scrollX: cam.scrollX,
+      scrollY: cam.scrollY,
+    };
+    this.active = true;
+    setViewportRelayoutHook(this.boundRelayout);
+    this.applyDisplay();
+    this.releasePlayBounds();
+    const room = this.currentRoom();
+    if (room) this.fitRect(room);
+    else this.setUserZoom(1);
+    this.bindMiddleBlock(true);
+    const parent = game.canvas?.parentElement;
+    parent?.classList?.add('phy-editor-hidpi');
+  }
+
+  exit() {
+    if (!this.active) return;
+    this.active = false;
+    this.panning = false;
+    this.panLast = null;
+    setViewportRelayoutHook(null);
+    this.bindMiddleBlock(false);
+    clearEditorViewportClass(this.scene.game);
+    const cam = this.scene.cameras.main;
+    cam.setZoom(1);
+    cam.setRotation(0);
+    applyViewport(this.scene.game);
+    this.saved = null;
+  }
+
+  bindMiddleBlock(on) {
+    const canvas = this.scene.game?.canvas;
+    if (!canvas) return;
+    if (on) canvas.addEventListener('mousedown', this.boundMiddleBlock);
+    else canvas.removeEventListener('mousedown', this.boundMiddleBlock);
+  }
+
+  applyDisplay() {
+    const view = getViewSize();
+    const display = computeEditorDisplaySize(view.w, view.h, this.dpr);
+    applyEditorViewport(this.scene.game, display);
+    this.scene.cameras.main.setZoom(cameraZoomFromUserZoom(this.userZoom, display.dpr));
+    return display;
+  }
+
+  relayout() {
+    if (!this.active || this._relayouting) return;
+    this._relayouting = true;
+    try {
+      const cam = this.scene.cameras.main;
+      const cx = cam.worldView?.centerX ?? cam.scrollX + cam.width / (2 * cam.zoom);
+      const cy = cam.worldView?.centerY ?? cam.scrollY + cam.height / (2 * cam.zoom);
+      this.applyDisplay();
+      this.releasePlayBounds();
+      cam.centerOn(cx, cy);
+      this.scene.debugPanel?.layoutEditorHud?.();
+      this.scene.debugPanel?.levelEditor?.drawOverlay?.();
+    } finally {
+      this._relayouting = false;
+    }
+  }
+
+  releasePlayBounds() {
+    const cam = this.scene.cameras.main;
+    cam.setRotation(0);
+    if (typeof cam.removeBounds === 'function') cam.removeBounds();
+    else cam.useBounds = false;
+  }
+
+  currentRoom() {
+    const rooms = getRooms();
+    return (
+      rooms.find((r) => r.id === this.scene.currentRoomId) ||
+      findRoomAt(this.scene.player?.x ?? 0, this.scene.player?.y ?? 0, rooms) ||
+      rooms[0] ||
+      null
+    );
+  }
+
+  setUserZoom(z, { center } = {}) {
+    this.userZoom = clampEditorZoom(z);
+    const cam = this.scene.cameras.main;
+    cam.setZoom(cameraZoomFromUserZoom(this.userZoom, this.dpr));
+    if (center) cam.centerOn(center.x, center.y);
+  }
+
+  zoomToward(worldX, worldY, nextUserZoom) {
+    const cam = this.scene.cameras.main;
+    const oldZoom = cam.zoom;
+    this.setUserZoom(nextUserZoom);
+    const next = scrollAfterZoomToward(cam, worldX, worldY, oldZoom, cam.zoom);
+    cam.setScroll(next.scrollX, next.scrollY);
+  }
+
+  wheelToward(pointer, deltaY) {
+    const pt = this.scene.cameras.main.getWorldPoint(pointer.x, pointer.y);
+    this.zoomToward(pt.x, pt.y, nextWheelZoom(this.userZoom, deltaY));
+  }
+
+  beginPan(screenX, screenY) {
+    this.panning = true;
+    this.panLast = { x: screenX, y: screenY };
+  }
+
+  panTo(screenX, screenY) {
+    if (!this.panning || !this.panLast) return;
+    const cam = this.scene.cameras.main;
+    const dx = screenX - this.panLast.x;
+    const dy = screenY - this.panLast.y;
+    cam.scrollX -= dx / cam.zoom;
+    cam.scrollY -= dy / cam.zoom;
+    this.panLast = { x: screenX, y: screenY };
+  }
+
+  endPan() {
+    this.panning = false;
+    this.panLast = null;
+  }
+
+  fitRect(rect) {
+    if (!rect) return;
+    const view = getViewSize();
+    const cx = rect.x + rect.w / 2;
+    const cy = rect.y + rect.h / 2;
+    this.setUserZoom(fitZoomForRect(rect, view.w, view.h), { center: { x: cx, y: cy } });
+  }
+
+  fitCurrentRoom() {
+    const room = this.currentRoom();
+    if (room) this.fitRect(room);
+  }
+
+  fitLayout() {
+    const bounds = getWorldBounds(getRooms());
+    if (bounds?.w > 0 && bounds?.h > 0) this.fitRect(bounds);
+  }
+
+  resetOneToOne() {
+    const room = this.currentRoom();
+    const center = room
+      ? { x: room.x + room.w / 2, y: room.y + room.h / 2 }
+      : { x: this.scene.player?.x ?? 0, y: this.scene.player?.y ?? 0 };
+    this.setUserZoom(1, { center });
+  }
+
+  onMiddleClick() {
+    const now = this.scene.time?.now ?? Date.now();
+    if (now - this.lastMiddleAt < 400) {
+      this.fitCurrentRoom();
+      this.lastMiddleAt = 0;
+      return true;
+    }
+    this.lastMiddleAt = now;
+    return false;
+  }
 }
 
 /**
@@ -71,6 +315,9 @@ export class LevelEditor {
     this.gateKind = 'corridorJoin';
     this.gateRequires = '';
     this.chromeH = px(40);
+    this.history = new LayoutHistory();
+    this.view = new EditorView(scene);
+    this.altSnapOff = false;
 
     this.overlay = scene.add.graphics().setDepth(18);
     this.hud = addHudText(scene, px(8), px(46), '', {
@@ -85,9 +332,11 @@ export class LevelEditor {
     this.boundDown = (p) => this.onPointerDown(p);
     this.boundMove = (p) => this.onPointerMove(p);
     this.boundUp = (p) => this.onPointerUp(p);
+    this.boundWheel = (p, _gos, _dx, dy, _dz, ev) => this.onWheel(p, dy, ev);
     scene.input.on('pointerdown', this.boundDown);
     scene.input.on('pointermove', this.boundMove);
     scene.input.on('pointerup', this.boundUp);
+    scene.input.on('wheel', this.boundWheel);
   }
 
   mountDom() {
@@ -103,7 +352,7 @@ export class LevelEditor {
       'right:8px',
       'bottom:8px',
       'z-index:30',
-      'max-height:38%',
+      'max-height:42%',
       'overflow:auto',
       'padding:6px 8px',
       'background:rgba(10,10,18,0.92)',
@@ -115,13 +364,22 @@ export class LevelEditor {
     el.innerHTML = `
       <div class="phy-ed-tools" style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:4px"></div>
       <div class="phy-ed-row" style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:4px">
-        <label>grid <select data-ed="grid">${optionList(EDITOR_GRID_SIZES, 16)}</select></label>
+        <label>snap <select data-ed="grid">${optionList(EDITOR_GRID_SIZES, 16)}</select></label>
+        <button type="button" data-act="snap8">8</button>
+        <button type="button" data-act="snap16">16</button>
         <label>kind <select data-ed="solidKind">${optionList(SOLID_KIND_OPTIONS, 'wall')}</select></label>
         <label>orb <select data-ed="pickupType">${optionList(PICKUP_TYPE_OPTIONS, ABILITY_ID.GRAVITY_FALL)}</select></label>
         <label>gate <select data-ed="gateKind">${optionList(GATE_KIND_OPTIONS, 'corridorJoin')}</select></label>
         <label>req <select data-ed="gateRequires"><option value="">(none)</option>${optionList(PICKUP_TYPE_OPTIONS, '')}</select></label>
         <label><input type="checkbox" data-ed="autoWalls" checked /> auto walls</label>
+        <button type="button" data-act="fit">Fit room</button>
+        <button type="button" data-act="fitAll">Fit all</button>
+        <button type="button" data-act="one">1:1</button>
+        <button type="button" data-act="undo">Undo</button>
+        <button type="button" data-act="redo">Redo</button>
       </div>
+      <div class="phy-ed-hud" data-ed="hudline" style="margin-bottom:4px;color:#c5e1a5"></div>
+      <div class="phy-ed-keys" style="margin-bottom:4px;color:#90a4ae;font-size:11px">${CHEAT_SHEET}</div>
       <div class="phy-ed-insp" style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:4px">
         <label>id <input data-ed="id" size="14" /></label>
         <label>x <input data-ed="x" size="5" /></label>
@@ -181,18 +439,40 @@ export class LevelEditor {
     el.querySelector('[data-act="download"]').addEventListener('click', () => this.downloadJson());
     el.querySelector('[data-act="reset"]').addEventListener('click', () => this.resetDefaults());
     el.querySelector('[data-act="warp"]').addEventListener('click', () => this.warpToSelection());
+    el.querySelector('[data-act="fit"]').addEventListener('click', () => this.view.fitCurrentRoom());
+    el.querySelector('[data-act="fitAll"]').addEventListener('click', () => this.view.fitLayout());
+    el.querySelector('[data-act="one"]').addEventListener('click', () => this.view.resetOneToOne());
+    el.querySelector('[data-act="undo"]').addEventListener('click', () => this.undo());
+    el.querySelector('[data-act="redo"]').addEventListener('click', () => this.redo());
+    el.querySelector('[data-act="snap8"]').addEventListener('click', () => this.setGrid(8));
+    el.querySelector('[data-act="snap16"]').addEventListener('click', () => this.setGrid(16));
     el.addEventListener('pointerdown', (e) => e.stopPropagation());
-    el.addEventListener('keydown', (e) => e.stopPropagation());
+    el.addEventListener('keydown', (e) => {
+      e.stopPropagation();
+      if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT')) {
+        return;
+      }
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'z' || e.key === 'Z')) {
+        e.preventDefault();
+        if (e.shiftKey) this.redo();
+        else this.undo();
+      } else if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || e.key === 'Y')) {
+        e.preventDefault();
+        this.redo();
+      }
+    });
   }
 
   setActive(on) {
     this.active = Boolean(on);
-    this.hud.setVisible(this.active);
+    this.hud.setVisible(false);
     if (this.dom) this.dom.style.display = this.active ? 'block' : 'none';
     if (!this.active) {
       this.drag = null;
+      this.view.exit();
       this.overlay.clear();
     } else {
+      this.view.enter();
       this.refreshDom();
       this.refreshHud();
       this.drawOverlay();
@@ -207,6 +487,14 @@ export class LevelEditor {
     this.scene.debugPanel?.showToast?.(`Tool ${tool}`);
   }
 
+  setGrid(n) {
+    if (!EDITOR_GRID_SIZES.includes(n)) return;
+    this.grid = n;
+    if (this.dom) this.dom.querySelector('[data-ed="grid"]').value = String(this.grid);
+    this.refreshHud();
+    this.drawOverlay();
+  }
+
   cycleTool(dir = 1) {
     const i = EDITOR_TOOLS.indexOf(this.tool);
     this.setTool(EDITOR_TOOLS[(i + dir + EDITOR_TOOLS.length) % EDITOR_TOOLS.length]);
@@ -214,16 +502,76 @@ export class LevelEditor {
 
   cycleGrid() {
     const i = EDITOR_GRID_SIZES.indexOf(this.grid);
-    this.grid = EDITOR_GRID_SIZES[(i + 1) % EDITOR_GRID_SIZES.length];
-    if (this.dom) this.dom.querySelector('[data-ed="grid"]').value = String(this.grid);
-    this.refreshHud();
+    this.setGrid(EDITOR_GRID_SIZES[(i + 1) % EDITOR_GRID_SIZES.length]);
+  }
+
+  spaceHeld() {
+    return Boolean(this.scene.keys?.space?.isDown);
+  }
+
+  snapEnabled(pointer) {
+    if (this.altSnapOff) return false;
+    const ev = pointer?.event;
+    if (ev?.altKey) return false;
+    const kb = this.scene.input?.keyboard;
+    if (kb && typeof kb.checkDown === 'function') {
+      /* alt via event is enough */
+    }
+    if (typeof document !== 'undefined' && document.activeElement && ev == null) {
+      /* keep grid */
+    }
+    return true;
+  }
+
+  gridNow(pointer) {
+    return effectiveGrid(this.grid, this.snapEnabled(pointer));
+  }
+
+  commit(next) {
+    this.history.push(snapshotLayout());
+    return commitLayout(next);
+  }
+
+  undo() {
+    const prev = this.history.undo(snapshotLayout());
+    if (!prev) {
+      this.scene.debugPanel?.showToast?.('Nothing to undo');
+      return false;
+    }
+    this.selection = null;
+    this.drag = null;
+    commitLayout(cloneLayoutSnapshot(prev));
+    this.scene.debugPanel?.showToast?.('Undo');
+    this.refreshDom();
+    this.drawOverlay();
+    return true;
+  }
+
+  redo() {
+    const next = this.history.redo(snapshotLayout());
+    if (!next) {
+      this.scene.debugPanel?.showToast?.('Nothing to redo');
+      return false;
+    }
+    this.selection = null;
+    this.drag = null;
+    commitLayout(cloneLayoutSnapshot(next));
+    this.scene.debugPanel?.showToast?.('Redo');
+    this.refreshDom();
+    this.drawOverlay();
+    return true;
   }
 
   getState() {
+    const view = this.view.getState();
     return {
       active: this.active,
       tool: this.tool,
       grid: this.grid,
+      snap: this.grid,
+      zoomPct: view.zoomPct,
+      canUndo: this.history.canUndo,
+      canRedo: this.history.canRedo,
       selection: this.selection
         ? {
             type: this.selection.type,
@@ -237,6 +585,7 @@ export class LevelEditor {
         : null,
       layoutRevision: LAYOUT_REVISION,
       schemaVersion: SCHEMA_VERSION,
+      view,
     };
   }
 
@@ -246,12 +595,19 @@ export class LevelEditor {
     return { x: pt.x, y: pt.y };
   }
 
+  chromeBlockPx() {
+    const cam = this.scene.cameras.main;
+    const base = px(42);
+    if (!this.view.active || !cam?.width) return base;
+    return base * (cam.width / GAME_W);
+  }
+
   pointerBlocked(pointer) {
     const ev = pointer?.event;
     const t = ev?.target;
     if (t && this.dom && this.dom.contains(t)) return true;
     if (t && t.tagName && t.tagName !== 'CANVAS') return true;
-    if (pointer.y < this.chromeH) return true;
+    if (pointer.y < this.chromeBlockPx()) return true;
     return false;
   }
 
@@ -274,18 +630,40 @@ export class LevelEditor {
     );
   }
 
+  wantsPan(pointer) {
+    if (pointer.button === 1) return true;
+    if (pointer.button === 0 && this.spaceHeld()) return true;
+    return false;
+  }
+
+  onWheel(pointer, deltaY, ev) {
+    if (!this.active) return;
+    ev?.preventDefault?.();
+    pointer?.event?.preventDefault?.();
+    if (this.pointerBlocked(pointer)) return;
+    this.view.wheelToward(pointer, deltaY);
+    this.refreshHud();
+    this.drawOverlay();
+  }
+
   onPointerDown(pointer) {
     if (!this.active || this.pointerBlocked(pointer)) return;
+    if (this.wantsPan(pointer)) {
+      if (pointer.button === 1 && this.view.onMiddleClick()) return;
+      this.view.beginPan(pointer.x, pointer.y);
+      return;
+    }
     if (pointer.button !== 0) return;
     const { x, y } = this.worldPoint(pointer);
-    const snapped = snapPoint(x, y, this.grid);
+    const grid = this.gridNow(pointer);
+    const snapped = snapPoint(x, y, grid);
     const rooms = this.currentRooms();
     const pickups = getPickups();
     const gates = getGates();
 
     if (this.tool === 'select') {
       const rect = selectionWorldRect(this.selection, rooms);
-      const handle = handleAtPoint(rect, x, y);
+      const handle = handleAtPoint(rect, x, y, this.view.handlePad());
       if (this.selection && handle && this.selection.type !== 'pickup') {
         this.drag = { mode: 'resize', handle, start: { x, y }, orig: { ...rect } };
         return;
@@ -305,7 +683,7 @@ export class LevelEditor {
       if (hit) {
         const next = deleteSelection(hit, rooms, pickups, gates);
         this.selection = null;
-        commitLayout(next);
+        this.commit(next);
         this.scene.debugPanel?.showToast?.(`Deleted ${hit.type}`);
         this.refreshDom();
       }
@@ -315,7 +693,7 @@ export class LevelEditor {
     if (this.tool === 'pickup') {
       const pickup = makePickup(snapped.x, snapped.y, this.pickupType, rooms, pickups);
       pickups.push(pickup);
-      commitLayout({ rooms, pickups, gates });
+      this.commit({ rooms, pickups, gates });
       this.selection = { type: 'pickup', pickup, room: rooms.find((r) => r.id === pickup.roomId) };
       this.scene.debugPanel?.showToast?.(`Pickup ${pickup.id}`);
       this.refreshDom();
@@ -328,15 +706,27 @@ export class LevelEditor {
   }
 
   onPointerMove(pointer) {
-    if (!this.active || !this.drag) return;
+    if (!this.active) return;
+    this.altSnapOff = Boolean(pointer?.event?.altKey);
+    if (this.view.panning) {
+      this.view.panTo(pointer.x, pointer.y);
+      this.refreshHud();
+      this.drawOverlay();
+      return;
+    }
+    if (!this.drag) {
+      this.refreshHud();
+      return;
+    }
     const { x, y } = this.worldPoint(pointer);
+    const grid = this.gridNow(pointer);
     if (this.drag.mode === 'create') {
-      const p = snapPoint(x, y, this.grid);
+      const p = snapPoint(x, y, grid);
       this.drag.x1 = p.x;
       this.drag.y1 = p.y;
     } else if (this.drag.mode === 'move' && this.drag.orig) {
-      const dx = snapToGrid(x - this.drag.start.x, this.grid);
-      const dy = snapToGrid(y - this.drag.start.y, this.grid);
+      const dx = snapToGrid(x - this.drag.start.x, grid);
+      const dy = snapToGrid(y - this.drag.start.y, grid);
       this.drag.preview = {
         x: this.drag.orig.x + dx,
         y: this.drag.orig.y + dy,
@@ -345,14 +735,19 @@ export class LevelEditor {
       };
     } else if (this.drag.mode === 'resize' && this.drag.orig) {
       const min = this.selection?.type === 'room' ? MIN_ROOM : MIN_SOLID;
-      this.drag.preview = resizeRect(this.drag.orig, this.drag.handle, x, y, this.grid, min);
+      this.drag.preview = resizeRect(this.drag.orig, this.drag.handle, x, y, grid, min);
     }
     this.drawOverlay();
     this.refreshHud();
   }
 
   onPointerUp() {
-    if (!this.active || !this.drag) return;
+    if (!this.active) return;
+    if (this.view.panning) {
+      this.view.endPan();
+      return;
+    }
+    if (!this.drag) return;
     const drag = this.drag;
     this.drag = null;
     const rooms = this.currentRooms();
@@ -361,14 +756,15 @@ export class LevelEditor {
 
     if (drag.mode === 'create') {
       const min = drag.tool === 'room' ? MIN_ROOM : MIN_SOLID;
-      let rect = normalizeRect(drag.x0, drag.y0, drag.x1, drag.y1, this.grid, min);
+      const grid = this.grid;
+      let rect = normalizeRect(drag.x0, drag.y0, drag.x1, drag.y1, grid, min);
       if (drag.tool === 'room' && rect.w <= min && rect.h <= min) {
         rect = { x: rect.x, y: rect.y, w: DEFAULT_ROOM.w, h: DEFAULT_ROOM.h };
       }
       if (drag.tool === 'room') {
         const room = makeRoom(rect, rooms, { autoWalls: this.autoWalls });
         rooms.push(room);
-        commitLayout({ rooms, pickups, gates });
+        this.commit({ rooms, pickups, gates });
         this.selection = { type: 'room', room };
         this.scene.debugWarpRoom?.(room.id);
         this.scene.debugPanel?.showToast?.(`Room ${room.id}`);
@@ -381,7 +777,7 @@ export class LevelEditor {
           room.solids = room.solids ? [...room.solids] : [];
           const solid = makeSolidLocal(room, rect, { kind: this.solidKind });
           room.solids.push(solid);
-          commitLayout({ rooms, pickups, gates });
+          this.commit({ rooms, pickups, gates });
           this.selection = { type: 'solid', room, solid };
           this.scene.debugPanel?.showToast?.(`Solid ${solid.id}`);
         }
@@ -391,7 +787,7 @@ export class LevelEditor {
           requireAbility: this.gateRequires,
         });
         gates.push(gate);
-        commitLayout({ rooms, pickups, gates });
+        this.commit({ rooms, pickups, gates });
         this.selection = { type: 'gate', gate, room: rooms.find((r) => r.id === gate.fromRoomId) };
         this.scene.debugPanel?.showToast?.(`Gate ${gate.id}`);
       }
@@ -402,7 +798,7 @@ export class LevelEditor {
 
     if ((drag.mode === 'move' || drag.mode === 'resize') && drag.preview && this.selection) {
       applyWorldRectToSelection(this.selection, drag.preview, rooms, pickups);
-      commitLayout({ rooms, pickups, gates });
+      this.commit({ rooms, pickups, gates });
       this.refreshDom();
     }
     this.drawOverlay();
@@ -476,7 +872,7 @@ export class LevelEditor {
       gate.world = { x: wx, y: wy, w: ww, h: wh };
       this.selection = { type: 'gate', gate, room: rooms.find((r) => r.id === gate.fromRoomId) };
     }
-    commitLayout({ rooms, pickups, gates });
+    this.commit({ rooms, pickups, gates });
     this.scene.debugPanel?.showToast?.('Applied fields');
     this.refreshDom();
     this.drawOverlay();
@@ -505,6 +901,7 @@ export class LevelEditor {
   }
 
   resetDefaults() {
+    this.history.push(snapshotLayout());
     this.selection = null;
     resetDesignToDefaults();
     this.scene.debugPanel?.showToast?.('Reset to bundled default');
@@ -524,7 +921,7 @@ export class LevelEditor {
     if (!this.selection) return;
     const next = deleteSelection(this.selection, getRooms(), getPickups(), getGates());
     this.selection = null;
-    commitLayout(next);
+    this.commit(next);
     this.scene.debugPanel?.showToast?.('Deleted');
     this.refreshDom();
     this.drawOverlay();
@@ -534,6 +931,14 @@ export class LevelEditor {
     if (!this.dom) return;
     for (const btn of this.dom.querySelectorAll('[data-tool]')) {
       const on = btn.dataset.tool === this.tool;
+      btn.style.background = on ? '#33691e' : '#1b1b24';
+      btn.style.color = on ? '#f0f4c3' : '#c5e1a5';
+    }
+    for (const act of ['snap8', 'snap16']) {
+      const btn = this.dom.querySelector(`[data-act="${act}"]`);
+      if (!btn) continue;
+      const n = act === 'snap8' ? 8 : 16;
+      const on = this.grid === n;
       btn.style.background = on ? '#33691e' : '#1b1b24';
       btn.style.color = on ? '#f0f4c3' : '#c5e1a5';
     }
@@ -602,23 +1007,26 @@ export class LevelEditor {
   }
 
   refreshHud() {
-    if (!this.active) {
-      this.hud.setText('');
-      return;
-    }
-    const pointer = this.scene.input.activePointer;
+    const pointer = this.scene.input?.activePointer;
+    let wx = 0;
+    let wy = 0;
     let roomId = this.scene.currentRoomId || '?';
-    if (pointer) {
-      const { x, y } = this.worldPoint(pointer);
-      const under = findRoomAt(x, y, this.currentRooms());
+    if (pointer && this.active) {
+      const pt = this.worldPoint(pointer);
+      wx = Math.round(pt.x);
+      wy = Math.round(pt.y);
+      const under = findRoomAt(pt.x, pt.y, this.currentRooms());
       if (under) roomId = under.id;
     }
     const sel = this.selection
       ? `${this.selection.type}:${this.selection.solid?.id || this.selection.pickup?.id || this.selection.gate?.id || this.selection.room?.id}`
       : 'none';
-    this.hud.setText(
-      `EDIT ${this.tool.toUpperCase()}  grid ${this.grid}  room ${roomId}  sel ${sel}   Tab tool  G grid  Del erase  WASD walk  Shift+1-7 warp`
-    );
+    const snap = this.snapEnabled(pointer) ? this.grid : 'off';
+    const zoom = Math.round(this.view.userZoom * 100);
+    const line = `EDIT ${this.tool.toUpperCase()}  snap ${snap}  zoom ${zoom}%  world ${wx},${wy}  room ${roomId}  sel ${sel}`;
+    if (this.hud) this.hud.setText('');
+    const el = this.dom?.querySelector('[data-ed="hudline"]');
+    if (el) el.textContent = this.active ? line : '';
   }
 
   drawOverlay() {
@@ -627,20 +1035,30 @@ export class LevelEditor {
     if (!this.active) return;
     const cam = this.scene.cameras.main;
     const rooms = this.currentRooms();
-    const view = { x: cam.scrollX, y: cam.scrollY, w: GAME_W, h: GAME_H };
-    g.lineStyle(1, 0xb2ff59, 0.12);
+    const view = cam.worldView
+      ? { x: cam.worldView.x, y: cam.worldView.y, w: cam.worldView.width, h: cam.worldView.height }
+      : { x: cam.scrollX, y: cam.scrollY, w: GAME_W / cam.zoom, h: GAME_H / cam.zoom };
+    const lineW = Math.max(1 / Math.max(0.01, cam.zoom), 0.35);
+    g.lineStyle(lineW, 0xb2ff59, 0.12);
     const startX = Math.floor(view.x / this.grid) * this.grid;
     const startY = Math.floor(view.y / this.grid) * this.grid;
-    for (let x = startX; x <= view.x + view.w; x += this.grid) g.lineBetween(x, view.y, x, view.y + view.h);
-    for (let y = startY; y <= view.y + view.h; y += this.grid) g.lineBetween(view.x, y, view.x + view.w, y);
+    const maxLines = 240;
+    let nx = 0;
+    for (let x = startX; x <= view.x + view.w && nx < maxLines; x += this.grid, nx += 1) {
+      g.lineBetween(x, view.y, x, view.y + view.h);
+    }
+    let ny = 0;
+    for (let y = startY; y <= view.y + view.h && ny < maxLines; y += this.grid, ny += 1) {
+      g.lineBetween(view.x, y, view.x + view.w, y);
+    }
 
     for (const room of rooms) {
-      g.lineStyle(1, 0x81d4fa, 0.35);
+      g.lineStyle(lineW * 1.2, 0x81d4fa, 0.35);
       g.strokeRect(room.x, room.y, room.w, room.h);
     }
     for (const gate of getGates()) {
       if (!gate.world) continue;
-      g.lineStyle(2, 0xffe082, 0.7);
+      g.lineStyle(lineW * 2, 0xffe082, 0.7);
       g.strokeRect(gate.world.x, gate.world.y, gate.world.w, gate.world.h);
     }
 
@@ -649,18 +1067,19 @@ export class LevelEditor {
         ? normalizeRect(this.drag.x0, this.drag.y0, this.drag.x1, this.drag.y1, this.grid)
         : this.drag?.preview || selectionWorldRect(this.selection, rooms);
     if (preview) {
-      g.lineStyle(2, 0xb2ff59, 0.95);
+      g.lineStyle(lineW * 2, 0xb2ff59, 0.95);
       g.strokeRect(preview.x, preview.y, preview.w, preview.h);
       if (this.selection && this.selection.type !== 'pickup') {
         g.fillStyle(0xb2ff59, 0.9);
-        const hs = HANDLE_SIZE / 2;
+        const hs = this.view.handlePad();
+        const size = Math.max(HANDLE_SIZE, hs);
         for (const [hx, hy] of [
           [preview.x, preview.y],
           [preview.x + preview.w, preview.y],
           [preview.x, preview.y + preview.h],
           [preview.x + preview.w, preview.y + preview.h],
         ]) {
-          g.fillRect(hx - hs, hy - hs, HANDLE_SIZE, HANDLE_SIZE);
+          g.fillRect(hx - size / 2, hy - size / 2, size, size);
         }
       }
     }
@@ -668,14 +1087,20 @@ export class LevelEditor {
 
   update() {
     if (!this.active) return;
+    const kb = this.scene.input?.keyboard;
+    this.altSnapOff = Boolean(kb?.addKey && this.scene.input.keyboard.keys);
+    const ev = this.scene.input?.activePointer?.event;
+    if (ev) this.altSnapOff = Boolean(ev.altKey);
     this.refreshHud();
-    if (!this.drag) this.drawOverlay();
+    if (!this.drag && !this.view.panning) this.drawOverlay();
   }
 
   destroy() {
+    this.view.exit();
     this.scene.input.off('pointerdown', this.boundDown);
     this.scene.input.off('pointermove', this.boundMove);
     this.scene.input.off('pointerup', this.boundUp);
+    this.scene.input.off('wheel', this.boundWheel);
     this.overlay.destroy();
     this.hud.destroy();
     this.dom?.remove();

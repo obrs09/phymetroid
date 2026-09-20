@@ -85,10 +85,73 @@ const PICKUP_PRESETS = Object.fromEntries(
   ])
 );
 
+export const EDITOR_HISTORY_LIMIT = 40;
+
 export function snapToGrid(n, grid = 16) {
   const g = Number(grid);
-  if (!Number.isFinite(g) || g <= 0) return Math.round(n);
+  if (!Number.isFinite(g) || g <= 0) return Number(n);
   return Math.round(Number(n) / g) * g;
+}
+
+/** grid 0 / false leaves the point unsnapped (Alt-hold in the view). */
+export function effectiveGrid(grid, snapEnabled = true) {
+  if (snapEnabled === false) return 0;
+  const g = Number(grid);
+  return Number.isFinite(g) && g > 0 ? g : 0;
+}
+
+export function cloneLayoutSnapshot(layout = {}) {
+  return JSON.parse(
+    JSON.stringify({
+      rooms: layout.rooms || [],
+      pickups: layout.pickups || [],
+      gates: layout.gates || [],
+    })
+  );
+}
+
+/**
+ * Modest undo/redo stack for layout commits (rooms / solids / pickups / gates).
+ * Callers push the *pre-edit* snapshot; undo returns that snapshot.
+ */
+export class LayoutHistory {
+  constructor(limit = EDITOR_HISTORY_LIMIT) {
+    this.limit = Math.max(1, Number(limit) || EDITOR_HISTORY_LIMIT);
+    this.past = [];
+    this.future = [];
+  }
+
+  push(snapshot) {
+    this.past.push(cloneLayoutSnapshot(snapshot));
+    if (this.past.length > this.limit) this.past.shift();
+    this.future.length = 0;
+    return this.past.length;
+  }
+
+  undo(current) {
+    if (!this.past.length) return null;
+    this.future.push(cloneLayoutSnapshot(current));
+    return this.past.pop();
+  }
+
+  redo(current) {
+    if (!this.future.length) return null;
+    this.past.push(cloneLayoutSnapshot(current));
+    return this.future.pop();
+  }
+
+  get canUndo() {
+    return this.past.length > 0;
+  }
+
+  get canRedo() {
+    return this.future.length > 0;
+  }
+
+  clear() {
+    this.past.length = 0;
+    this.future.length = 0;
+  }
 }
 
 export function snapPoint(x, y, grid = 16) {
@@ -490,6 +553,9 @@ export function isTypingInEditorField(el = typeof document !== 'undefined' ? doc
 if (typeof window !== 'undefined') {
   window.__PHYMETROID_EDITOR_HELPERS__ = {
     snapToGrid,
+    effectiveGrid,
+    LayoutHistory,
+    cloneLayoutSnapshot,
     nextRoomId,
     makeRoom,
     makeSolidLocal,

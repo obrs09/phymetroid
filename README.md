@@ -122,12 +122,16 @@ Open the feel debugger (**F1** / `` ` ``), then click **LEVEL EDIT: OFF** (top-r
 打开手感调试后，点面板右上角 **LEVEL EDIT** 即可边玩边摆房间。
 
 1. Editor mode shrinks the F1 overlay so the world stays visible. Physics stays **live** (walk / jump / existing Shift+1–7 warps); gravity rotate (Q/E) stays blocked while the debugger is open.
-2. Bottom strip tools: **Select | Room | Wall | Pickup | Gate | Delete**. Click-drag rooms / walls / gates (axis-aligned, snap 8 or 16). Click to place an ability orb. Select + drag moves; corner handles resize; **Del** deletes.
+2. Bottom strip tools: **Select | Room | Wall | Pickup | Gate | Delete**. Click-drag rooms / walls / gates (axis-aligned, snap **8** or **16**, hold **Alt** to place freely). Click to place an ability orb. Select + drag moves; corner handles stay large in screen pixels; **Del** deletes. **Ctrl+Z** / **Cmd+Z** undo, **Ctrl+Y** / **Ctrl+Shift+Z** redo (about 40 edits).
 3. Room ids auto-increment (`R7`, `R8`…). Solids are stored **local** to the current room (`space: "local"`), matching `default-v4.json`. Optional `gapGateId` on a wall. Pickups use the same ability strings as the dump (`gravityFall` / `surfaceWalk` / `reactionJump` / `gravityField`) plus the default `requires` / `onCollect` for that orb. Gates use `fromRoomId` / `toRoomId` / `kind` / `requireAbility` / optional `world`.
 4. Each finished edit **Apply**s through `applyDesignConfig` (same path as a 策划 dump) and rebuilds solids / pickups / gates immediately. Geometry commits omit `sections.feel` so F1 feel numbers stay untouched. Renaming a room id retargets `pickups.roomId` and gate `fromRoomId`/`toRoomId`. Empty rooms still export `"solids": []`. Drafts persist in `localStorage` key `phymetroid.designConfig`. **Reset to bundled default** (or **R**) clears the draft.
 5. **Copy level JSON** / **Download level JSON** dump the **full** schemaVersion 4 contract (rooms + solids + pickups + gates + feel + `layoutRevision`). **E** is still the existing feel/design export — same payload, not broken. Export **sets** `layoutRevision` to the current contract (**5**); it does **not** bump the constant per edit. Only incompatible baked-solid migrations bump that number.
 
-Hotkeys while Level edit is on: **Tab** cycle tool, **G** cycle grid, **Del** erase selection, **1–4** / **Shift+1–7** cheats still work. Camera never rotates.
+While Level edit is on the canvas switches to a **high-DPI backing store** (container CSS size × `devicePixelRatio`; Scale Manager zoom `1/dpr`) so walls and handles stay crisp. Editor coordinates stay in the existing **640×360 world**. Wheel zooms toward the cursor (0.5×–4×). Middle-mouse drag or **Space+drag** pans. Double-click middle, **Fit room**, or **Fit all** frames the view; **1:1** is one world pixel per CSS pixel. Leaving the editor restores integer-zoom play scale and the room-snap camera.
+
+LEVEL EDIT 打开时画布按容器 CSS × DPR 提高 backing store（逻辑坐标仍是 640×360）。滚轮对准光标缩放，中键或 **Space+拖拽**平移，**Fit / 1:1** 复位。关掉编辑后恢复整数倍缩放和房间吸附镜头。
+
+Hotkeys while Level edit is on: **Tab** cycle tool, **G** cycle snap 8/16, **Alt** no-snap, wheel zoom, MMB/Space pan, **Ctrl+Z** undo, **Del** erase, **1–4** / **Shift+1–7** cheats still work (ignored while typing in a strip field). Camera never rotates.
 
 Do **not** bake corridor-join slabs as solids — shared R0–R2–R5–R6 walls stay an engine pass.
 
@@ -245,8 +249,9 @@ src/viewport.js        # integer zoom + CSS fill + F fullscreen
 src/scaleZoom.js       # computeIntegerZoom / leftover CSS fill
 src/designConfig.js    # feel + player/progress design + export/import
 src/feelDebugPanel.js  # F1 debugger UI
-src/levelEditor.js     # F1 level-edit helpers (schema-safe, no Phaser)
-src/levelEditorView.js # F1 level-edit overlay + HTML strip
+src/levelEditor.js         # F1 level-edit helpers + undo stack (schema-safe, no Phaser)
+src/levelEditorCamera.js   # editor zoom / pan / high-DPI math (Phaser-free)
+src/levelEditorView.js     # F1 level-edit overlay + HTML strip + high-DPI view
 src/hudText.js         # sharper HUD / debugger / map labels
 docs/                  # GitHub Pages root (CDN + docs/src)
 ```

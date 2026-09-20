@@ -587,6 +587,108 @@ check(
   JSON.stringify(afterEditorReset)
 );
 
+await page.setViewport({ width: 1280, height: 800, deviceScaleFactor: 2 });
+await new Promise((r) => setTimeout(r, 200));
+await page.evaluate(() => {
+  if (!window.__PHYMETROID_DEBUG__.editor()?.active) {
+    window.__PHYMETROID_DEBUG__.toggleFeel();
+    window.__PHYMETROID_DEBUG__.toggleLevelEdit();
+  }
+});
+await new Promise((r) => setTimeout(r, 250));
+const editorHiDpi = await page.evaluate(() => {
+  const canvas = document.querySelector('#game-container canvas');
+  const dump = window.__PHYMETROID_GET_DESIGN__();
+  return {
+    editor: window.__PHYMETROID_DEBUG__.editor(),
+    view: window.__PHYMETROID_DEBUG__.editorView(),
+    canvasW: canvas?.width,
+    canvasH: canvas?.height,
+    cssW: canvas?.clientWidth,
+    logicalW: dump.logicalW,
+    logicalH: dump.logicalH,
+    schema: dump.schemaVersion,
+    hidpiClass: document.getElementById('game-container')?.classList.contains('phy-editor-hidpi'),
+  };
+});
+check(
+  'editor high-DPI backing store > logical 640',
+  editorHiDpi.canvasW > 640 && editorHiDpi.view?.active === true && editorHiDpi.hidpiClass,
+  JSON.stringify({ canvasW: editorHiDpi.canvasW, view: editorHiDpi.view, hidpi: editorHiDpi.hidpiClass })
+);
+check(
+  'editor display does not change logical 640×360 / schema 4',
+  editorHiDpi.logicalW === 640 && editorHiDpi.logicalH === 360 && editorHiDpi.schema === 4,
+  JSON.stringify(editorHiDpi)
+);
+
+const undoZoom = await page.evaluate(() => {
+  const h = window.__PHYMETROID_EDITOR_HELPERS__;
+  const beforeCount = window.__PHYMETROID_GET_DESIGN__().sections.rooms.length;
+  const { rooms, pickups, gates } = h.snapshotLayout();
+  rooms.push(h.makeRoom({ x: 4000, y: 0, w: 640, h: 360 }, rooms, { autoWalls: true }));
+  window.__PHYMETROID_DEBUG__.editorCommit({ rooms, pickups, gates });
+  const mid = window.__PHYMETROID_GET_DESIGN__().sections.rooms.map((r) => r.id);
+  const undone = window.__PHYMETROID_DEBUG__.editorUndo();
+  const afterUndo = window.__PHYMETROID_GET_DESIGN__().sections.rooms.map((r) => r.id);
+  window.__PHYMETROID_DEBUG__.editorSetZoom(2);
+  const zoomed = window.__PHYMETROID_DEBUG__.editorView();
+  window.__PHYMETROID_DEBUG__.editorOneToOne();
+  const one = window.__PHYMETROID_DEBUG__.editorView();
+  return {
+    beforeCount,
+    mid,
+    undone,
+    afterUndo,
+    zoomed: zoomed?.userZoom,
+    one: one?.userZoom,
+    schema: window.__PHYMETROID_GET_DESIGN__().schemaVersion,
+    rev: window.__PHYMETROID_GET_DESIGN__().layoutRevision,
+  };
+});
+check(
+  'editor undo restores last layout commit',
+  undoZoom.undone === true &&
+    undoZoom.mid.includes('R7') &&
+    !undoZoom.afterUndo.includes('R7') &&
+    undoZoom.afterUndo.length === undoZoom.beforeCount,
+  JSON.stringify(undoZoom)
+);
+check(
+  'editor zoom 2× then 1:1 stays schema v4',
+  undoZoom.zoomed === 2 && undoZoom.one === 1 && undoZoom.schema === 4 && undoZoom.rev === 5,
+  JSON.stringify(undoZoom)
+);
+await page.screenshot({ path: `${OUT}/v4_11_editor_hidpi.png` });
+
+await page.evaluate(() => {
+  window.__PHYMETROID_EDITOR_HELPERS__.reset();
+  window.__PHYMETROID_DEBUG__.toggleLevelEdit();
+  window.__PHYMETROID_DEBUG__.toggleFeel();
+});
+await new Promise((r) => setTimeout(r, 200));
+const afterEditorLeave = await page.evaluate(() => {
+  const canvas = document.querySelector('#game-container canvas');
+  return {
+    editor: window.__PHYMETROID_DEBUG__.editor(),
+    view: window.__PHYMETROID_DEBUG__.editorView(),
+    canvasW: canvas?.width,
+    hidpiClass: document.getElementById('game-container')?.classList.contains('phy-editor-hidpi'),
+    room: window.__PHYMETROID_DEBUG__.pos().room,
+    cam: window.__PHYMETROID_DEBUG__.camRotation(),
+  };
+});
+check(
+  'leaving editor restores play canvas + room-snap camera',
+  afterEditorLeave.editor?.active === false &&
+    afterEditorLeave.view?.active === false &&
+    afterEditorLeave.canvasW === 640 &&
+    afterEditorLeave.hidpiClass === false &&
+    afterEditorLeave.cam === 0,
+  JSON.stringify(afterEditorLeave)
+);
+await page.setViewport({ width: 1280, height: 800, deviceScaleFactor: 1 });
+
 const exportCompliance = await page.evaluate(() => {
   window.__PHYMETROID_APPLY_DESIGN__({
     schemaVersion: 4,

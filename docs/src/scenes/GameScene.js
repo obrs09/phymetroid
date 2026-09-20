@@ -10,6 +10,7 @@ import {
   subscribeDesign,
   subscribeLayout,
 } from '../designConfig.js';
+import { isTypingInEditorField } from '../levelEditor.js';
 import { FeelDebugPanel } from '../feelDebugPanel.js';
 import { GravityDownFlash } from '../gravityFlash.js';
 import { addHudText, refreshHudTextResolution } from '../hudText.js';
@@ -177,9 +178,18 @@ export class GameScene extends Phaser.Scene {
       this.toggleDebug();
     });
     this.input.keyboard.on('keydown-BACKTICK', () => this.toggleDebug());
-    this.input.keyboard.on('keydown-M', () => this.toggleMap());
-    this.input.keyboard.on('keydown-NINE', () => this.debugDamage(1));
-    this.input.keyboard.on('keydown-ZERO', () => heal(1));
+    this.input.keyboard.on('keydown-M', () => {
+      if (isTypingInEditorField()) return;
+      this.toggleMap();
+    });
+    this.input.keyboard.on('keydown-NINE', () => {
+      if (isTypingInEditorField()) return;
+      this.debugDamage(1);
+    });
+    this.input.keyboard.on('keydown-ZERO', () => {
+      if (isTypingInEditorField()) return;
+      heal(1);
+    });
 
     refreshHudTextResolution(this.scale.zoom);
 
@@ -209,6 +219,13 @@ export class GameScene extends Phaser.Scene {
         toggleMap: () => this.toggleMap(),
         toggleLevelEdit: () => this.debugPanel?.setEditorOn(!this.debugPanel.editorOn),
         editor: () => this.debugPanel?.levelEditor?.getState?.() ?? null,
+        editorView: () => this.debugPanel?.levelEditor?.view?.getState?.() ?? null,
+        editorUndo: () => this.debugPanel?.levelEditor?.undo?.() ?? false,
+        editorRedo: () => this.debugPanel?.levelEditor?.redo?.() ?? false,
+        editorCommit: (next) => this.debugPanel?.levelEditor?.commit?.(next),
+        editorSetZoom: (z) => this.debugPanel?.levelEditor?.view?.setUserZoom?.(z),
+        editorFit: () => this.debugPanel?.levelEditor?.view?.fitCurrentRoom?.(),
+        editorOneToOne: () => this.debugPanel?.levelEditor?.view?.resetOneToOne?.(),
         toggleAbility: (id) => this.debugToggleAbility(id),
         warpRoom: (id) => this.debugWarpRoom(id),
         flash: () => this.gravityFlash?.getState() ?? null,
@@ -336,7 +353,12 @@ export class GameScene extends Phaser.Scene {
     this.buildMapOverlay();
     this.mapRoot.setVisible(mapWasOn);
     const here = findRoomAt(this.player.x, this.player.y, rooms) || findRoomById(this.currentRoomId, rooms);
-    if (here) this.snapCameraToRoom(here, true);
+    if (this.debugPanel?.editorActive) {
+      if (here) {
+        this.currentRoomId = here.id;
+        this.markVisited(here);
+      }
+    } else if (here) this.snapCameraToRoom(here, true);
     else if (rooms[0]) this.snapCameraToRoom(rooms[0], true);
     this.debugPanel?.levelEditor?.drawOverlay?.();
   }
@@ -344,12 +366,14 @@ export class GameScene extends Phaser.Scene {
   onEditorModeChange(active) {
     if (active) {
       if (this.physics.world.isPaused) this.physics.world.resume();
-    } else if (this.debugVisible && !this.physics.world.isPaused) {
+      return;
+    }
+    if (this.debugVisible && !this.physics.world.isPaused) {
       this.player.setVelocity(0, 0);
       this.physics.world.pause();
-      const room = findRoomAt(this.player.x, this.player.y, this.rooms());
-      if (room) this.snapCameraToRoom(room, true);
     }
+    const room = findRoomAt(this.player.x, this.player.y, this.rooms()) || findRoomById(this.currentRoomId, this.rooms());
+    if (room) this.snapCameraToRoom(room, true);
   }
 
   drawRoomBackgrounds() {
@@ -600,7 +624,13 @@ export class GameScene extends Phaser.Scene {
     const pos = SAFE[room.id] || { x: room.x + room.w * 0.35, y: room.y + room.h - 60 };
     this.player.setPosition(pos.x, pos.y);
     this.player.setVelocity(0, 0);
-    this.snapCameraToRoom(room, true);
+    if (this.debugPanel?.editorActive) {
+      this.currentRoomId = room.id;
+      this.markVisited(room);
+      this.debugPanel.levelEditor?.view?.fitRect?.(room);
+    } else {
+      this.snapCameraToRoom(room, true);
+    }
     return { room: room.id, x: pos.x, y: pos.y };
   }
 
@@ -719,6 +749,7 @@ export class GameScene extends Phaser.Scene {
     const cam = this.cameras.main;
     // Vector-only gravity: never rotate the camera.
     cam.setRotation(0);
+    cam.setZoom(1);
     cam.setBounds(room.x, room.y, room.w, room.h);
     if (instant) cam.setScroll(room.x, room.y);
     else cam.pan(room.x + room.w / 2, room.y + room.h / 2, 180, 'Linear', true);
@@ -836,7 +867,15 @@ export class GameScene extends Phaser.Scene {
         consumeJumpEdges(false);
         return;
       }
+      if (isTypingInEditorField()) {
+        consumeJumpEdges();
+        this.player.setVelocity(0, 0);
+        return;
+      }
       // Level edit: keep walking / jump so new geometry can be playtested.
+      // Space is reserved for pan — do not treat it as jump.
+      Phaser.Input.Keyboard.JustDown(this.keys.space);
+      Phaser.Input.Keyboard.JustUp(this.keys.space);
     }
 
     if (this.mapVisible) {
@@ -849,18 +888,19 @@ export class GameScene extends Phaser.Scene {
     if (grounded) this.coyoteUntil = now + feel.coyoteMs;
     this.handleGravityInput(grounded);
 
+    const editing = Boolean(this.debugPanel?.editorActive);
     const left = this.cursors.left.isDown || this.keys.a.isDown;
     const right = this.cursors.right.isDown || this.keys.d.isDown;
     const jumpDown =
-      this.cursors.up.isDown || this.keys.w.isDown || this.keys.space.isDown;
+      this.cursors.up.isDown || this.keys.w.isDown || (!editing && this.keys.space.isDown);
     const jumpPressed =
       Phaser.Input.Keyboard.JustDown(this.cursors.up) ||
       Phaser.Input.Keyboard.JustDown(this.keys.w) ||
-      Phaser.Input.Keyboard.JustDown(this.keys.space);
+      (!editing && Phaser.Input.Keyboard.JustDown(this.keys.space));
     const jumpReleased =
       Phaser.Input.Keyboard.JustUp(this.cursors.up) ||
       Phaser.Input.Keyboard.JustUp(this.keys.w) ||
-      Phaser.Input.Keyboard.JustUp(this.keys.space);
+      (!editing && Phaser.Input.Keyboard.JustUp(this.keys.space));
 
     if (grants.hasGravity) {
       const parts = splitVelocity(body.velocity.x, body.velocity.y, down);
@@ -910,7 +950,12 @@ export class GameScene extends Phaser.Scene {
 
     const room = findRoomAt(this.player.x, this.player.y, this.rooms());
     if (room && room.id !== this.currentRoomId) {
-      this.snapCameraToRoom(room, true);
+      if (this.debugPanel?.editorActive) {
+        this.currentRoomId = room.id;
+        this.markVisited(room);
+      } else {
+        this.snapCameraToRoom(room, true);
+      }
     }
   }
 }
