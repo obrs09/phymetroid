@@ -264,10 +264,18 @@ check('entered R4 (neg Y)', r4.pos.room === 'R4' && r4.pos.y < 0, JSON.stringify
 check('camera not rotated in R4', r4.cam === 0, String(r4.cam));
 await page.screenshot({ path: `${OUT}/v3_05_entered_r4.png` });
 
-// Collect teal orb
-await page.evaluate(() => window.__PHYMETROID_DEBUG__.warp(1320, -320));
+// Collect teal orb (pin down first — leftover "up" from the R2→R4 fall launches off the orb)
+await page.evaluate(() => {
+  window.__PHYMETROID_DEBUG__.setDown('down', true);
+  window.__PHYMETROID_DEBUG__.warp(1320, -320);
+});
 await new Promise((r) => setTimeout(r, 500));
 run = await page.evaluate(() => window.__PHYMETROID_GET_RUN__());
+if (!run.abilities.includes('surfaceWalk')) {
+  await page.evaluate(() => window.__PHYMETROID_DEBUG__.warp(1320, -320));
+  await new Promise((r) => setTimeout(r, 400));
+  run = await page.evaluate(() => window.__PHYMETROID_GET_RUN__());
+}
 check('picked surfaceWalk', run.abilities.includes('surfaceWalk'), JSON.stringify(run.abilities));
 check('phase frictionLesson', run.phase === 'frictionLesson', run.phase);
 check('item frictionBoots', run.items.frictionBoots === 1, JSON.stringify(run.items));
@@ -313,11 +321,16 @@ check(
 
 // R5 reactionJump orb (requires surfaceWalk — already unlocked)
 await page.evaluate(() => {
-  window.__PHYMETROID_DEBUG__.setDown('down');
+  window.__PHYMETROID_DEBUG__.setDown('down', true);
   window.__PHYMETROID_DEBUG__.warp(2000, 220);
 });
 await new Promise((r) => setTimeout(r, 500));
 run = await page.evaluate(() => window.__PHYMETROID_GET_RUN__());
+if (!run.abilities.includes('reactionJump')) {
+  await page.evaluate(() => window.__PHYMETROID_DEBUG__.warp(2000, 220));
+  await new Promise((r) => setTimeout(r, 400));
+  run = await page.evaluate(() => window.__PHYMETROID_GET_RUN__());
+}
 check('picked reactionJump', run.abilities.includes('reactionJump'), JSON.stringify(run.abilities));
 check('phase jumpLesson', run.phase === 'jumpLesson', run.phase);
 check('item jumpBooster', run.items.jumpBooster === 1, JSON.stringify(run.items));
@@ -362,9 +375,17 @@ check(
 );
 
 // R6 gravityField orb
-await page.evaluate(() => window.__PHYMETROID_DEBUG__.warp(2880, 120));
+await page.evaluate(() => {
+  window.__PHYMETROID_DEBUG__.setDown('down', true);
+  window.__PHYMETROID_DEBUG__.warp(2880, 120);
+});
 await new Promise((r) => setTimeout(r, 500));
 run = await page.evaluate(() => window.__PHYMETROID_GET_RUN__());
+if (!run.abilities.includes('gravityField')) {
+  await page.evaluate(() => window.__PHYMETROID_DEBUG__.warp(2880, 120));
+  await new Promise((r) => setTimeout(r, 400));
+  run = await page.evaluate(() => window.__PHYMETROID_GET_RUN__());
+}
 check('picked gravityField', run.abilities.includes('gravityField'), JSON.stringify(run.abilities));
 check('phase exploration after field (dump stub)', run.phase === 'exploration', run.phase);
 check('item fieldCore', run.items.fieldCore === 1, JSON.stringify(run.items));
