@@ -26,10 +26,13 @@ import {
 } from '../src/designConfig.js';
 import {
   applyWorldRectToSelection,
+  cloneLayoutSnapshot,
   commitLayout,
   deleteSelection,
+  effectiveGrid,
   fourWallsForRoom,
   hitTestEditor,
+  LayoutHistory,
   makeGate,
   makePickup,
   makeRoom,
@@ -37,8 +40,18 @@ import {
   nextRoomId,
   renameRoomId,
   snapToGrid,
+  snapshotLayout,
   worldToLocal,
 } from '../src/levelEditor.js';
+import {
+  cameraZoomFromUserZoom,
+  clampEditorZoom,
+  computeEditorDisplaySize,
+  fitZoomForRect,
+  nextWheelZoom,
+  scrollAfterZoomToward,
+  worldHandlePad,
+} from '../src/levelEditorCamera.js';
 import { ROOMS } from '../src/rooms.js';
 import {
   canonicalizeDown,
@@ -841,6 +854,9 @@ section('abilities design not mixed into feel', () => {
 section('level editor helpers snap / ids / local solids', () => {
   assert.equal(snapToGrid(17, 16), 16);
   assert.equal(snapToGrid(25, 8), 24);
+  assert.equal(snapToGrid(17.4, 0), 17.4);
+  assert.equal(effectiveGrid(16, false), 0);
+  assert.equal(effectiveGrid(8, true), 8);
   const rooms = getRooms();
   assert.equal(nextRoomId(rooms), 'R7');
   const room = makeRoom({ x: 3200, y: 0, w: 640, h: 360 }, rooms, { autoWalls: false });
@@ -1106,6 +1122,50 @@ section('room rename retargets pickup.roomId and gate endpoints', () => {
   assert.equal(dump.sections.gates.find((g) => g.id === gate.id).toRoomId, 'RHub');
   assert.deepEqual(validateDesignGraph(dump.sections), []);
   resetDesignToDefaults();
+});
+
+section('editor undo/redo stack restores rooms without changing schema', () => {
+  resetDesignToDefaults();
+  const hist = new LayoutHistory(3);
+  const before = snapshotLayout();
+  hist.push(before);
+  const rooms = getRooms();
+  rooms.push(makeRoom({ x: 4000, y: 0, w: 640, h: 360 }, rooms, { autoWalls: true }));
+  commitLayout({ rooms, pickups: getPickups(), gates: getGates() });
+  assert.equal(getRooms().some((r) => r.id === 'R7'), true);
+  const undone = hist.undo(snapshotLayout());
+  assert.ok(undone);
+  commitLayout(cloneLayoutSnapshot(undone));
+  const dump = commitLayout(snapshotLayout());
+  assert.equal(dump.schemaVersion, 4);
+  assert.equal(dump.layoutRevision, 5);
+  assert.equal(dump.logicalW, 640);
+  assert.equal(dump.logicalH, 360);
+  assert.deepEqual(
+    getRooms().map((r) => r.id),
+    ['R0', 'R1', 'R2', 'R3', 'R4', 'R5', 'R6']
+  );
+  const redone = hist.redo(snapshotLayout());
+  assert.ok(redone.rooms.some((r) => r.id === 'R7'));
+  resetDesignToDefaults();
+});
+
+section('editor zoom / high-DPI math stays in 640×360 world units', () => {
+  assert.equal(clampEditorZoom(0.1), 0.5);
+  assert.equal(clampEditorZoom(9), 4);
+  const display = computeEditorDisplaySize(1280, 720, 2);
+  assert.equal(display.gameW, 2560);
+  assert.equal(display.gameH, 1440);
+  assert.equal(display.scaleZoom, 0.5);
+  assert.equal(cameraZoomFromUserZoom(1, 2), 2);
+  assert.equal(worldHandlePad(1, 12), 12);
+  assert.equal(worldHandlePad(2, 12), 6);
+  assert.ok(nextWheelZoom(1, -100) > 1);
+  assert.ok(nextWheelZoom(1, 100) < 1);
+  const scrolled = scrollAfterZoomToward({ scrollX: 100, scrollY: 50 }, 200, 100, 1, 2);
+  assert.deepEqual(scrolled, { scrollX: 150, scrollY: 75 });
+  const fit = fitZoomForRect({ x: 0, y: 0, w: 640, h: 360 }, 1280, 720, 0);
+  assert.equal(fit, 2);
 });
 
 console.log('\nAll schema v4 contract checks passed.');

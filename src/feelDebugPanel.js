@@ -142,6 +142,17 @@ export class FeelDebugPanel {
     const shift = this.shiftDown(ev);
 
     if (this.editorOn) {
+      if ((ev.ctrlKey || ev.metaKey) && (key === 'z' || key === 'Z' || code === 'KeyZ')) {
+        ev.preventDefault?.();
+        if (ev.shiftKey) this.levelEditor.redo();
+        else this.levelEditor.undo();
+        return;
+      }
+      if ((ev.ctrlKey || ev.metaKey) && (key === 'y' || key === 'Y' || code === 'KeyY')) {
+        ev.preventDefault?.();
+        this.levelEditor.redo();
+        return;
+      }
       if (key === 'Tab' || code === 'Tab') {
         ev.preventDefault?.();
         this.levelEditor.cycleTool(shift ? -1 : 1);
@@ -257,6 +268,7 @@ export class FeelDebugPanel {
         row.plus.setVisible(false);
       });
       this.cheatText.setY(px(28));
+      this.cheatText.setVisible(false);
       this.helpText.setY(px(38));
       this.helpText.setVisible(false);
     } else {
@@ -270,11 +282,25 @@ export class FeelDebugPanel {
         row.plus.setVisible(true);
       });
       this.cheatText.setY(px(128));
+      this.cheatText.setVisible(true);
       this.helpText.setY(px(148));
       this.helpText.setVisible(true);
     }
     if (!this.visible) this.levelEditor.setActive(false);
+    this.layoutEditorHud();
     this.scene.onEditorModeChange?.(this.editorActive);
+  }
+
+  layoutEditorHud() {
+    // High-DPI editor resize must not balloon this 640-wide strip. The HTML
+    // overlay owns zoom/cursor/hotkeys at CSS pixels; Phaser chrome stays
+    // a compact top-left caption.
+    this.root.setScale(1);
+    if (this.editorActive) {
+      const w = Math.min(GAME_W, this.scene.scale?.width || GAME_W);
+      this.panel.setSize(w - px(8), px(40));
+      this.panel.setPosition(w / 2, px(24));
+    }
   }
 
   showToast(msg, ms = 2200) {
@@ -288,9 +314,9 @@ export class FeelDebugPanel {
     this.helpText.setText(
       this.editorOn
         ? [
-            'LEVEL EDIT  Tab tool  G grid  click-drag place  Del erase',
-            '1-4 abilities  Shift+1-7 warp  E feel JSON  R reset dump',
-            'Copy/Download level JSON in the bottom strip   F1/` close',
+            'LEVEL EDIT  Tab tool  G snap 8/16  Alt no-snap  Del erase',
+            'Wheel zoom  MMB/Space-drag pan  Fit/1:1  Ctrl+Z undo  Ctrl+Y redo',
+            '1-4 / Shift+1-7 cheats  E export  R reset  F1/` close',
           ].join('\n')
         : [
             '1-4 toggle FALL/WALK/JUMP/FIELD   Shift+1-7 warp R0-R6',
@@ -305,7 +331,11 @@ export class FeelDebugPanel {
       const tag = ['FALL', 'WALK', 'JUMP', 'FIELD'][i] || id.slice(0, 4).toUpperCase();
       return hasAbility(id) ? `[${tag}]` : tag.toLowerCase();
     }).join(' ');
-    this.cheatText?.setText(`CHEAT  ${chips}   warp R0-R6 (Shift+1-7 or click)`);
+    this.cheatText?.setText(
+      this.editorOn
+        ? `CHEAT  ${chips}   Tab tool  G snap  wheel zoom  Space/MMB pan  ^Z undo`
+        : `CHEAT  ${chips}   warp R0-R6 (Shift+1-7 or click)`
+    );
   }
 
   onCheatClick(pointer) {
