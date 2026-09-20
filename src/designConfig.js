@@ -24,16 +24,20 @@
  * or applyDesignConfig(obj). The future 策划 bot can write this same JSON.
  *
  * schemaVersion 4 adds rooms[].solids (explicit rects, default space:local,
- * optional space:world + gapGateId). v3 dumps without solids still import:
- * engine falls back to worldSolids.js hardcode. v1 feel-only and v2
+ * optional space:world + gapGateId). v3 dumps that omit the solids field
+ * still import: engine falls back to worldSolids.js hardcode. An explicit
+ * empty array (`"solids": []`) is kept and treated as a data-driven empty
+ * room — never omitted on sanitize/export. v1 feel-only and v2
  * player/progress dumps still import. Legacy ability id `gravity` maps to
- * `gravityFall`. Feel debugger keys are unchanged.
+ * `gravityFall`. Feel debugger keys are unchanged. Unknown solid.kind is
+ * remapped to `custom` (rect kept). gapGateId is stripped unless it names
+ * an existing gate that already has a world rect (never invent world).
  */
 
 import { GAME_H, GAME_W, ROOMS, WORLD_SCALE } from './rooms.js';
 import { CARDINAL_AXES, isCardinal, normalizeDown } from './gravity.js';
 import DEFAULT_V4 from './design/defaultV4.js';
-import { isTallR2SolidNearGate, solidToWorldRect } from './worldSolids.js';
+import { isTallR2SolidNearGate, normalizeSolidKind, solidToWorldRect } from './worldSolids.js';
 
 export const SCHEMA_VERSION = 4;
 /** Bump when baked solids are incompatible with older localStorage dumps. */
@@ -347,7 +351,7 @@ export const COMPAT_DEFAULTS = Object.freeze({
   fromSchemaVersion: 3,
   notes: Object.freeze([
     'layoutRevision 5: short R2_doorframe local(320,264,24,64); R3 ceil A/B/C; R5/R6 added.',
-    'v4 solids data-driven; v3 without solids → engine hardcode fallback.',
+    'v4 solids data-driven; omitted solids → engine hardcode fallback; empty [] is kept.',
     'corridorJoin skip vertical seals only on Y=0 band (R0–R2–R5–R6); never strip R3 side walls.',
     'gate_R1_to_R3 has no world; gapGateId dig only for gates with world.',
     'Pixel feel already WORLD_SCALE×2; do not re-scale.',
@@ -712,13 +716,14 @@ function sanitizeSolid(raw) {
   const w = Number(raw.w);
   const h = Number(raw.h);
   if (![x, y, w, h].every(Number.isFinite) || w <= 0 || h <= 0) return null;
-  const kind = typeof raw.kind === 'string' && raw.kind.trim() ? raw.kind.trim() : 'custom';
+  const kind = normalizeSolidKind(raw.kind);
   const space = raw.space === 'world' ? 'world' : 'local';
   const solid = { x, y, w, h, kind, space };
   if (typeof raw.id === 'string' && raw.id.trim()) solid.id = raw.id.trim();
   if (typeof raw.gapGateId === 'string' && raw.gapGateId.trim()) {
     solid.gapGateId = raw.gapGateId.trim();
   }
+  if (typeof raw.color === 'string' && raw.color.trim()) solid.color = raw.color.trim();
   solid.fixed = raw.fixed !== false;
   return solid;
 }
@@ -738,16 +743,21 @@ function sanitizeRooms(list) {
     const h = Number(raw.h);
     if (![x, y, w, h].every(Number.isFinite) || w <= 0 || h <= 0) continue;
     seen.add(id);
+    // Never copy nested pickups/gates — those live only under sections.
     const room = { id, x, y, w, h };
     if (typeof raw.role === 'string' && raw.role.trim()) room.role = raw.role.trim();
     if (typeof raw.intent === 'string' && raw.intent.trim()) room.intent = raw.intent.trim();
     if (Array.isArray(raw.solids)) {
-      const solids = raw.solids.map(sanitizeSolid).filter(Boolean);
-      if (solids.length) room.solids = solids;
+      room.solids = raw.solids.map(sanitizeSolid).filter(Boolean);
     }
     rooms.push(room);
   }
-  return rooms.length ? rooms : fallback.map((r) => ({ ...r, solids: r.solids ? r.solids.map((s) => ({ ...s })) : undefined }));
+  return rooms.length
+    ? rooms
+    : fallback.map((r) => ({
+        ...r,
+        solids: Array.isArray(r.solids) ? r.solids.map((s) => ({ ...s })) : undefined,
+      }));
 }
 
 function bakedR2Doorframe() {
@@ -819,8 +829,43 @@ function migrateR3Ceilings(room) {
 function cloneBakedRoom(room) {
   return {
     ...room,
-    solids: room.solids ? room.solids.map((s) => ({ ...s })) : undefined,
+    solids: Array.isArray(room.solids) ? room.solids.map((s) => ({ ...s })) : undefined,
   };
+}
+
+function gateHasWorldRect(gate) {
+  const w = gate?.world;
+  return Boolean(w && [w.x, w.y, w.w, w.h].every(Number.isFinite));
+}
+
+/**
+ * Keep gapGateId only when it names an existing gate that already has world.
+ * Missing / floorGap-without-world ids are warned and stripped — never invent world.
+ */
+export function stripInvalidGapGateIds(rooms, gates = []) {
+  if (!Array.isArray(rooms)) return { rooms, changed: false };
+  const byId = new Map((gates || []).filter((g) => g?.id).map((g) => [g.id, g]));
+  let changed = false;
+  const next = rooms.map((room) => {
+    if (!Array.isArray(room.solids) || !room.solids.length) return room;
+    let roomChanged = false;
+    const solids = room.solids.map((s) => {
+      if (!s?.gapGateId) return s;
+      const gate = byId.get(s.gapGateId);
+      if (gate && gateHasWorldRect(gate)) return s;
+      roomChanged = true;
+      changed = true;
+      const reason = !gate
+        ? `missing gapGateId "${s.gapGateId}" (skip hole)`
+        : `gapGateId "${s.gapGateId}" has no world rect (skip hole; will not invent world)`;
+      console.warn(`[phymetroid] design validation: solid "${s.id || '?'}" in ${room.id} references ${reason}`);
+      const copy = { ...s };
+      delete copy.gapGateId;
+      return copy;
+    });
+    return roomChanged ? { ...room, solids } : room;
+  });
+  return { rooms: next, changed };
 }
 
 function mergeMissingBakedRooms(rooms) {
@@ -1105,19 +1150,10 @@ export function validateDesignGraph(sections = state.sections) {
   return errors;
 }
 
-function warnMissingGapGateIds(sections = state.sections) {
-  const gates = Array.isArray(sections?.gates) ? sections.gates : [];
-  const rooms = Array.isArray(sections?.rooms) ? sections.rooms : [];
-  const gateIds = new Set(gates.map((g) => g.id).filter(Boolean));
-  for (const room of rooms) {
-    for (const s of room.solids || []) {
-      if (s.gapGateId && !gateIds.has(s.gapGateId)) {
-        console.warn(
-          `[phymetroid] design validation: solid "${s.id || '?'}" in ${room.id} references missing gapGateId "${s.gapGateId}" (skip hole)`
-        );
-      }
-    }
-  }
+function warnAndStripGapGateIds(sections = state.sections) {
+  const stripped = stripInvalidGapGateIds(sections?.rooms, sections?.gates);
+  if (stripped.changed) sections.rooms = stripped.rooms;
+  return stripped.changed;
 }
 
 function logDesignValidation(errors) {
@@ -1208,8 +1244,8 @@ function applyImportedObject(obj) {
   state.sections.pickups = migrated.pickups;
   state.sections.gates = migrated.gates;
   if (migrated.changed) layoutTouched = true;
+  if (warnAndStripGapGateIds(state.sections)) layoutTouched = true;
   logDesignValidation(validateDesignGraph(state.sections));
-  warnMissingGapGateIds(state.sections);
   return { migrated: migrated.changed, layoutTouched };
 }
 
@@ -1290,7 +1326,7 @@ export function getAbilityDesign(id) {
 export function getRooms() {
   return state.sections.rooms.map((r) => ({
     ...r,
-    solids: r.solids ? r.solids.map((s) => ({ ...s })) : undefined,
+    solids: Array.isArray(r.solids) ? r.solids.map((s) => ({ ...s })) : undefined,
   }));
 }
 
@@ -1490,7 +1526,8 @@ export function buildExportPayload(date = new Date()) {
  * Unknown keys are ignored; missing sections / keys keep current values.
  * v1 feel-only, v2 player/progress, and v3 (no solids) JSON are valid.
  * Legacy ability id `gravity` maps to `gravityFall`. Feel numbers are not re-scaled.
- * Graph errors (missing roomId / gate / gapGateId) are logged, not thrown.
+ * Graph errors (missing roomId / gate) are logged, not thrown.
+ * Invalid gapGateId (missing gate or gate without world) is warned and stripped.
  * @param {object|string} input
  */
 export function applyDesignConfig(input) {
