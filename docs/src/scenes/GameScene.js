@@ -214,6 +214,17 @@ export class GameScene extends Phaser.Scene {
         flash: () => this.gravityFlash?.getState() ?? null,
         mapContents: () => this.describeVisibleMapContents(),
         solidsNear: (x, pad = 8) => this.solidsNear(x, pad),
+        pickups: () =>
+          (this.pickupGroup?.getChildren() || []).map((p) => {
+            const spec = p.getData?.('pickup');
+            return {
+              id: spec?.id,
+              x: p.x,
+              y: p.y,
+              active: p.active,
+              hasBody: Boolean(p.body),
+            };
+          }),
       };
     }
 
@@ -311,8 +322,10 @@ export class GameScene extends Phaser.Scene {
         this.tweens.killTweensOf(child);
       }
       this.pickupGroup.clear(true, true);
-      this.spawnPickups();
+      this.pickupGroup.destroy(true);
     }
+    this.pickupGroup = this.physics.add.group();
+    this.spawnPickups();
     this.bindPlayerPhysics();
     const mapWasOn = this.mapVisible;
     if (this.mapRoot) {
