@@ -7,6 +7,7 @@ import {
   SCHEMA_VERSION,
   LAYOUT_REVISION,
   applyDesignConfig,
+  applyFeel,
   buildExportPayload,
   canonicalAbilityId,
   getAbilitiesDesign,
@@ -20,6 +21,7 @@ import {
   migrateAbilityChainLayout,
   migrateLegacyRoomSolids,
   resetDesignToDefaults,
+  stripInvalidGapGateIds,
   validateDesignGraph,
 } from '../src/designConfig.js';
 import {
@@ -33,6 +35,7 @@ import {
   makeRoom,
   makeSolidLocal,
   nextRoomId,
+  renameRoomId,
   snapToGrid,
   worldToLocal,
 } from '../src/levelEditor.js';
@@ -486,6 +489,8 @@ section('design graph validation logs, does not throw', () => {
   assert.ok(!graph.some((e) => e.includes('gapGateId')), 'missing gapGateId is a warn, not a hard error');
   assert.ok(errors.some((e) => e.includes('design validation')));
   assert.ok(warns.some((e) => e.includes('gapGateId') && e.includes('missing_gate')));
+  const bad = getRooms().find((r) => r.id === 'R0')?.solids?.find((s) => s.id === 'bad');
+  assert.equal(bad?.gapGateId, undefined, 'missing gapGateId must be stripped on import');
   resetDesignToDefaults();
 });
 
@@ -510,6 +515,9 @@ section('unknown solid.kind is custom and does not throw', () => {
   const rects = listWorldSolidRects(getRooms(), getGates());
   const custom = rects.find((r) => r.x === 10 && r.y === 10 && r.w === 8 && r.h === 8);
   assert.equal(custom.tag, 'custom');
+  const exported = getRooms().find((r) => r.id === 'R0').solids.find((s) => s.id === 'weird');
+  assert.equal(exported.kind, 'custom', 'unknown kind remaps to custom on export, rect kept');
+  assert.deepEqual({ x: exported.x, y: exported.y, w: exported.w, h: exported.h }, { x: 10, y: 10, w: 8, h: 8 });
   resetDesignToDefaults();
 });
 
@@ -837,6 +845,7 @@ section('level editor helpers snap / ids / local solids', () => {
   assert.equal(nextRoomId(rooms), 'R7');
   const room = makeRoom({ x: 3200, y: 0, w: 640, h: 360 }, rooms, { autoWalls: false });
   assert.equal(room.id, 'R7');
+  assert.deepEqual(room.solids, [], 'editor rooms without walls still carry solids: []');
   assert.deepEqual({ x: room.x, y: room.y, w: room.w, h: room.h }, { x: 3200, y: 0, w: 640, h: 360 });
   const walls = fourWallsForRoom(room);
   assert.equal(walls.length, 4);
@@ -910,6 +919,193 @@ section('level editor round-trip: room + walls + pickup + gate validates', () =>
   resetDesignToDefaults();
   assert.equal(getRooms().some((r) => r.id === 'R7'), false);
   assert.equal(getRooms().length, 7);
+});
+
+section('empty solids arrays are preserved; missing solids still fallback', () => {
+  const dump = buildExportPayload();
+  const r0 = dump.sections.rooms.find((r) => r.id === 'R0');
+  r0.solids = [];
+  applyDesignConfig(dump);
+  const kept = getRooms().find((r) => r.id === 'R0');
+  assert.ok(Array.isArray(kept.solids), 'explicit empty solids must stay an array');
+  assert.equal(kept.solids.length, 0);
+  const exported = buildExportPayload().sections.rooms.find((r) => r.id === 'R0');
+  assert.deepEqual(exported.solids, []);
+  assert.ok(!('pickups' in exported));
+  assert.ok(!('gates' in exported));
+  const rects = listWorldSolidRects(getRooms(), getGates());
+  const r0Floor = rects.some((r) => r.tag === 'floor' && r.x < 640 && r.y === 328);
+  assert.equal(r0Floor, false, 'solids:[] must not fall back to hardcoded R0 floor');
+  assert.equal(countRoomSourceSolids(getRooms()).R0, 0);
+
+  applyDesignConfig({
+    schemaVersion: 3,
+    logicalW: 640,
+    logicalH: 360,
+    sections: { rooms: ROOMS.map((r) => ({ ...r })) },
+  });
+  assert.equal(getRooms().find((r) => r.id === 'R0').solids, undefined);
+  const fallbackRects = listWorldSolidRects(getRooms(), getGates());
+  assert.equal(
+    fallbackRects.some((r) => r.tag === 'floor' && r.x < 640 && r.y === 328),
+    true,
+    'omitted solids still use the v3 hardcode'
+  );
+  resetDesignToDefaults();
+});
+
+section('gapGateId without a world-bearing gate is warned and stripped', () => {
+  const dump = buildExportPayload();
+  const r1 = dump.sections.rooms.find((r) => r.id === 'R1');
+  const floor = r1.solids.find((s) => s.id === 'R1_floorA') || r1.solids.find((s) => s.kind === 'floor');
+  floor.gapGateId = 'gate_R1_to_R3';
+  const r2 = dump.sections.rooms.find((r) => r.id === 'R2');
+  r2.solids.push({
+    id: 'R2_orphanGap',
+    kind: 'floor',
+    space: 'local',
+    x: 0,
+    y: 0,
+    w: 8,
+    h: 8,
+    gapGateId: 'no_such_gate',
+  });
+  const warns = [];
+  const origWarn = console.warn;
+  console.warn = (msg) => warns.push(String(msg));
+  try {
+    applyDesignConfig(dump);
+  } finally {
+    console.warn = origWarn;
+  }
+  const afterR1 = getRooms().find((r) => r.id === 'R1');
+  const afterFloor = afterR1.solids.find((s) => s.id === floor.id);
+  assert.equal(afterFloor.gapGateId, undefined, 'floorGap gate_R1_to_R3 must not keep gapGateId');
+  const pit = getGates().find((g) => g.id === 'gate_R1_to_R3');
+  assert.equal(pit.world, undefined, 'must not invent world on gate_R1_to_R3');
+  const orphan = getRooms().find((r) => r.id === 'R2').solids.find((s) => s.id === 'R2_orphanGap');
+  assert.ok(orphan, 'unknown-kind/orphan rect is kept');
+  assert.equal(orphan.gapGateId, undefined);
+  assert.ok(warns.some((e) => e.includes('gate_R1_to_R3') && e.includes('no world')));
+  assert.ok(warns.some((e) => e.includes('no_such_gate')));
+  const ceil = getRooms().find((r) => r.id === 'R2').solids.find((s) => s.id === 'R2_ceil');
+  assert.equal(ceil.gapGateId, 'gate_R2_to_R4', 'world-bearing gapGateId stays');
+  const stripped = stripInvalidGapGateIds(getRooms(), getGates());
+  assert.equal(stripped.changed, false, 'strip is idempotent after import');
+  resetDesignToDefaults();
+});
+
+section('editor geometry commit does not clobber feel keys', () => {
+  applyFeel({ moveSpeed: 199, coyoteMs: 120 });
+  const before = getFeel();
+  assert.equal(before.moveSpeed, 199);
+  assert.equal(before.coyoteMs, 120);
+  const rooms = getRooms();
+  rooms.find((r) => r.id === 'R0').intent = 'editor-geometry-only';
+  const dump = commitLayout({ rooms, pickups: getPickups(), gates: getGates() });
+  const after = getFeel();
+  assert.deepEqual(after, before);
+  assert.deepEqual(Object.keys(dump.sections.feel), Object.keys(before));
+  assert.equal(dump.sections.feel.moveSpeed, 199);
+  assert.equal(dump.sections.feel.coyoteMs, 120);
+  assert.equal(dump.sections.feel.gravityY, 1960);
+  assert.equal(dump.sections.feel.jumpVelocity, -550);
+  resetDesignToDefaults();
+});
+
+section('export → applyDesignConfig round-trip keeps geometry + feel + ability chain', () => {
+  applyFeel({ moveSpeed: 205, floatNudge: 64 });
+  const first = buildExportPayload();
+  assert.equal(first.schemaVersion, 4);
+  assert.equal(first.layoutRevision, 5);
+  applyDesignConfig(JSON.parse(JSON.stringify(first)));
+  const second = buildExportPayload();
+  const stripTime = (p) => {
+    const { exportedAt, ...rest } = p;
+    return rest;
+  };
+  assert.deepEqual(stripTime(second).sections.rooms, stripTime(first).sections.rooms);
+  assert.deepEqual(stripTime(second).sections.pickups, stripTime(first).sections.pickups);
+  assert.deepEqual(stripTime(second).sections.gates, stripTime(first).sections.gates);
+  assert.deepEqual(stripTime(second).sections.feel, stripTime(first).sections.feel);
+  assert.equal(second.sections.feel.moveSpeed, 205);
+  assert.equal(second.schemaVersion, 4);
+  for (const room of second.sections.rooms) {
+    assert.ok(Array.isArray(room.solids), `${room.id} must export solids`);
+    assert.equal(room.pickups, undefined);
+    assert.equal(room.gates, undefined);
+  }
+  assert.ok(Array.isArray(second.sections.pickups));
+  assert.ok(Array.isArray(second.sections.gates));
+  assert.ok(second.sections.pickups.some((p) => p.id === 'reactionJumpOrb' && p.roomId === 'R5'));
+  assert.ok(second.sections.gates.some((g) => g.id === 'gate_R5_mustJump' && g.world?.x === 2120));
+  resetDesignToDefaults();
+});
+
+section('nested room pickups/gates are dropped; sections stay top-level', () => {
+  applyDesignConfig({
+    schemaVersion: 4,
+    logicalW: 640,
+    logicalH: 360,
+    sections: {
+      rooms: [
+        {
+          id: 'R0',
+          x: 0,
+          y: 0,
+          w: 640,
+          h: 360,
+          solids: [],
+          pickups: [{ id: 'nestedOrb', roomId: 'R0', x: 10, y: 10 }],
+          gates: [{ id: 'nestedGate', fromRoomId: 'R0', toRoomId: 'R0' }],
+        },
+      ],
+      pickups: [{ id: 'gravityOrb', ability: 'gravityFall', roomId: 'R0', x: 256, y: 136 }],
+      gates: [{ id: 'gate_R0_loop', fromRoomId: 'R0', toRoomId: 'R0', kind: 'passage' }],
+    },
+  });
+  const room = getRooms().find((r) => r.id === 'R0');
+  assert.deepEqual(room.solids, []);
+  assert.equal(room.pickups, undefined);
+  assert.equal(room.gates, undefined);
+  const dump = buildExportPayload();
+  assert.equal(
+    dump.sections.rooms.some((r) => r.pickups || r.gates),
+    false,
+    'export must not nest pickups/gates into rooms'
+  );
+  assert.ok(dump.sections.pickups.some((p) => p.id === 'gravityOrb'));
+  assert.equal(dump.sections.pickups.some((p) => p.id === 'nestedOrb'), false);
+  assert.ok(dump.sections.gates.some((g) => g.id === 'gate_R0_loop'));
+  resetDesignToDefaults();
+});
+
+section('room rename retargets pickup.roomId and gate endpoints', () => {
+  const rooms = getRooms();
+  const pickups = getPickups();
+  const gates = getGates();
+  const extra = makeRoom({ x: 3200, y: 0, w: 640, h: 360 }, rooms, { autoWalls: true });
+  rooms.push(extra);
+  const orb = makePickup(3400, 180, 'gravityFall', rooms, pickups);
+  pickups.push(orb);
+  const gate = makeGate(
+    { x: 3184, y: 200, w: 32, h: 80 },
+    rooms,
+    gates,
+    { kind: 'corridorJoin', fromRoomId: 'R6', toRoomId: extra.id, requireAbility: 'gravityFall' }
+  );
+  gates.push(gate);
+  renameRoomId(rooms, pickups, gates, extra.id, 'RHub');
+  assert.equal(rooms.find((r) => r.id === 'RHub')?.id, 'RHub');
+  assert.equal(pickups.find((p) => p.id === orb.id).roomId, 'RHub');
+  assert.equal(gates.find((g) => g.id === gate.id).toRoomId, 'RHub');
+  assert.equal(gates.find((g) => g.id === gate.id).fromRoomId, 'R6');
+  const dump = commitLayout({ rooms, pickups, gates });
+  assert.equal(dump.sections.rooms.some((r) => r.id === 'RHub'), true);
+  assert.equal(dump.sections.pickups.find((p) => p.id === orb.id).roomId, 'RHub');
+  assert.equal(dump.sections.gates.find((g) => g.id === gate.id).toRoomId, 'RHub');
+  assert.deepEqual(validateDesignGraph(dump.sections), []);
+  resetDesignToDefaults();
 });
 
 console.log('\nAll schema v4 contract checks passed.');

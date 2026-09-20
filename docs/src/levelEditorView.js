@@ -35,6 +35,7 @@ import {
   makeRoom,
   makeSolidLocal,
   normalizeRect,
+  renameRoomId,
   resizeRect,
   selectionWorldRect,
   snapPoint,
@@ -423,7 +424,7 @@ export class LevelEditor {
       const room = rooms.find((r) => r.id === sel.room.id);
       if (!room) return;
       const nextId = val('id').trim() || room.id;
-      if (nextId !== room.id && !rooms.some((r) => r.id === nextId)) room.id = nextId;
+      if (nextId !== room.id) renameRoomId(rooms, pickups, gates, room.id, nextId);
       room.x = num('x', room.x);
       room.y = num('y', room.y);
       room.w = Math.max(MIN_ROOM, num('w', room.w));

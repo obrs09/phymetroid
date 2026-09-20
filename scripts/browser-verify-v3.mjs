@@ -264,10 +264,18 @@ check('entered R4 (neg Y)', r4.pos.room === 'R4' && r4.pos.y < 0, JSON.stringify
 check('camera not rotated in R4', r4.cam === 0, String(r4.cam));
 await page.screenshot({ path: `${OUT}/v3_05_entered_r4.png` });
 
-// Collect teal orb
-await page.evaluate(() => window.__PHYMETROID_DEBUG__.warp(1320, -320));
+// Collect teal orb (pin down first — leftover "up" from the R2→R4 fall launches off the orb)
+await page.evaluate(() => {
+  window.__PHYMETROID_DEBUG__.setDown('down', true);
+  window.__PHYMETROID_DEBUG__.warp(1320, -320);
+});
 await new Promise((r) => setTimeout(r, 500));
 run = await page.evaluate(() => window.__PHYMETROID_GET_RUN__());
+if (!run.abilities.includes('surfaceWalk')) {
+  await page.evaluate(() => window.__PHYMETROID_DEBUG__.warp(1320, -320));
+  await new Promise((r) => setTimeout(r, 400));
+  run = await page.evaluate(() => window.__PHYMETROID_GET_RUN__());
+}
 check('picked surfaceWalk', run.abilities.includes('surfaceWalk'), JSON.stringify(run.abilities));
 check('phase frictionLesson', run.phase === 'frictionLesson', run.phase);
 check('item frictionBoots', run.items.frictionBoots === 1, JSON.stringify(run.items));
@@ -313,11 +321,16 @@ check(
 
 // R5 reactionJump orb (requires surfaceWalk — already unlocked)
 await page.evaluate(() => {
-  window.__PHYMETROID_DEBUG__.setDown('down');
+  window.__PHYMETROID_DEBUG__.setDown('down', true);
   window.__PHYMETROID_DEBUG__.warp(2000, 220);
 });
 await new Promise((r) => setTimeout(r, 500));
 run = await page.evaluate(() => window.__PHYMETROID_GET_RUN__());
+if (!run.abilities.includes('reactionJump')) {
+  await page.evaluate(() => window.__PHYMETROID_DEBUG__.warp(2000, 220));
+  await new Promise((r) => setTimeout(r, 400));
+  run = await page.evaluate(() => window.__PHYMETROID_GET_RUN__());
+}
 check('picked reactionJump', run.abilities.includes('reactionJump'), JSON.stringify(run.abilities));
 check('phase jumpLesson', run.phase === 'jumpLesson', run.phase);
 check('item jumpBooster', run.items.jumpBooster === 1, JSON.stringify(run.items));
@@ -362,9 +375,17 @@ check(
 );
 
 // R6 gravityField orb
-await page.evaluate(() => window.__PHYMETROID_DEBUG__.warp(2880, 120));
+await page.evaluate(() => {
+  window.__PHYMETROID_DEBUG__.setDown('down', true);
+  window.__PHYMETROID_DEBUG__.warp(2880, 120);
+});
 await new Promise((r) => setTimeout(r, 500));
 run = await page.evaluate(() => window.__PHYMETROID_GET_RUN__());
+if (!run.abilities.includes('gravityField')) {
+  await page.evaluate(() => window.__PHYMETROID_DEBUG__.warp(2880, 120));
+  await new Promise((r) => setTimeout(r, 400));
+  run = await page.evaluate(() => window.__PHYMETROID_GET_RUN__());
+}
 check('picked gravityField', run.abilities.includes('gravityField'), JSON.stringify(run.abilities));
 check('phase exploration after field (dump stub)', run.phase === 'exploration', run.phase);
 check('item fieldCore', run.items.fieldCore === 1, JSON.stringify(run.items));
@@ -565,6 +586,73 @@ check(
   afterEditorReset.rooms.join(',') === 'R0,R1,R2,R3,R4,R5,R6' && afterEditorReset.editor?.active === false,
   JSON.stringify(afterEditorReset)
 );
+
+const exportCompliance = await page.evaluate(() => {
+  window.__PHYMETROID_APPLY_DESIGN__({
+    schemaVersion: 4,
+    logicalW: 640,
+    logicalH: 360,
+    sections: { feel: { moveSpeed: 199, coyoteMs: 120 } },
+  });
+  const feelBefore = { ...window.__PHYMETROID_GET_DESIGN__().sections.feel };
+  const h = window.__PHYMETROID_EDITOR_HELPERS__;
+  const snap = h.snapshotLayout();
+  snap.rooms.find((r) => r.id === 'R0').intent = 'browser-geometry';
+  h.commitLayout(snap);
+  const afterCommit = window.__PHYMETROID_GET_DESIGN__();
+  const exported = window.__PHYMETROID_GET_DESIGN__();
+  exported.sections.rooms.find((r) => r.id === 'R0').solids = [];
+  const r1Floor = exported.sections.rooms.find((r) => r.id === 'R1').solids.find((s) => s.id === 'R1_floorA');
+  r1Floor.gapGateId = 'gate_R1_to_R3';
+  window.__PHYMETROID_APPLY_DESIGN__(exported);
+  const round = window.__PHYMETROID_GET_DESIGN__();
+  const r0 = round.sections.rooms.find((r) => r.id === 'R0');
+  const floor = round.sections.rooms.find((r) => r.id === 'R1').solids.find((s) => s.id === 'R1_floorA');
+  const pit = round.sections.gates.find((g) => g.id === 'gate_R1_to_R3');
+  window.__PHYMETROID_APPLY_DESIGN__(JSON.parse(JSON.stringify(round)));
+  const again = window.__PHYMETROID_GET_DESIGN__();
+  return {
+    feelBefore,
+    feelAfter: afterCommit.sections.feel,
+    emptySolids: Array.isArray(r0.solids) && r0.solids.length === 0,
+    nested: again.sections.rooms.some((r) => r.pickups || r.gates),
+    pickupsTop: Array.isArray(again.sections.pickups) && again.sections.pickups.length > 0,
+    gatesTop: Array.isArray(again.sections.gates) && again.sections.gates.length > 0,
+    gapStripped: floor.gapGateId == null,
+    pitNoWorld: pit.world == null,
+    schema: again.schemaVersion,
+    rev: again.layoutRevision,
+    feelKeys: Object.keys(again.sections.feel),
+  };
+});
+check(
+  'editor commit leaves feel keys untouched',
+  exportCompliance.feelAfter.moveSpeed === 199 &&
+    exportCompliance.feelAfter.coyoteMs === 120 &&
+    exportCompliance.feelAfter.gravityY === exportCompliance.feelBefore.gravityY,
+  JSON.stringify({ before: exportCompliance.feelBefore, after: exportCompliance.feelAfter })
+);
+check(
+  'empty solids[] survive APPLY and stay top-level-only pickups/gates',
+  exportCompliance.emptySolids &&
+    !exportCompliance.nested &&
+    exportCompliance.pickupsTop &&
+    exportCompliance.gatesTop,
+  JSON.stringify(exportCompliance)
+);
+check(
+  'gapGateId on floorGap is stripped; no invented world',
+  exportCompliance.gapStripped && exportCompliance.pitNoWorld,
+  JSON.stringify({ gap: exportCompliance.gapStripped, world: exportCompliance.pitNoWorld })
+);
+check(
+  'round-trip export/APPLY keeps schema 4 / layoutRevision 5',
+  exportCompliance.schema === 4 &&
+    exportCompliance.rev === 5 &&
+    exportCompliance.feelKeys.length === 9,
+  JSON.stringify({ schema: exportCompliance.schema, rev: exportCompliance.rev, feelKeys: exportCompliance.feelKeys })
+);
+await page.evaluate(() => window.__PHYMETROID_EDITOR_HELPERS__.reset());
 
 // v2 import mapping
 const v2 = await page.evaluate(() => {

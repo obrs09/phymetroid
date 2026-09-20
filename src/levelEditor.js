@@ -207,7 +207,7 @@ export function makeRoom(worldRect, rooms = [], { id, role = 'custom', autoWalls
     role,
     intent: 'editor',
   };
-  if (autoWalls) room.solids = fourWallsForRoom(room);
+  room.solids = autoWalls ? fourWallsForRoom(room) : [];
   return room;
 }
 
@@ -410,6 +410,28 @@ export function applyWorldRectToSelection(sel, rect, rooms, pickups) {
   }
 }
 
+/**
+ * Rename a room in place and retarget pickups.roomId + gate endpoints.
+ * No-op on empty ids, no-op rename, or id collision.
+ */
+export function renameRoomId(rooms, pickups, gates, fromId, toId) {
+  const from = typeof fromId === 'string' ? fromId.trim() : '';
+  const to = typeof toId === 'string' ? toId.trim() : '';
+  if (!from || !to || from === to) return { rooms, pickups, gates };
+  if ((rooms || []).some((r) => r.id === to)) return { rooms, pickups, gates };
+  const room = (rooms || []).find((r) => r.id === from);
+  if (!room) return { rooms, pickups, gates };
+  room.id = to;
+  for (const p of pickups || []) {
+    if (p.roomId === from) p.roomId = to;
+  }
+  for (const g of gates || []) {
+    if (g.fromRoomId === from) g.fromRoomId = to;
+    if (g.toRoomId === from) g.toRoomId = to;
+  }
+  return { rooms, pickups, gates };
+}
+
 export function deleteSelection(sel, rooms, pickups, gates) {
   if (!sel) return { rooms, pickups, gates };
   if (sel.type === 'room') {
@@ -437,7 +459,9 @@ export function deleteSelection(sel, rooms, pickups, gates) {
 
 /**
  * Apply rooms/pickups/gates through the same import path as a 策划 dump.
- * Stamps schemaVersion 4 + current layoutRevision via buildExportPayload persist.
+ * Intentionally omits sections.feel / gravity / abilities / player / progress
+ * so a geometry commit cannot clobber feel keys. Stamps schemaVersion 4 +
+ * current layoutRevision via buildExportPayload persist.
  */
 export function commitLayout({ rooms, pickups, gates } = {}) {
   return applyDesignConfig({
@@ -474,6 +498,7 @@ if (typeof window !== 'undefined') {
     fourWallsForRoom,
     hitTestEditor,
     commitLayout,
+    renameRoomId,
     snapshotLayout,
     validate: validateDesignGraph,
     exportPayload: buildExportPayload,

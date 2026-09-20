@@ -3,9 +3,10 @@
  * R3 stays the legacy pit under R1. R4 is the new friction room above R2.
  * The R2 ceiling / R4 floor share gate_R2_to_R4 as a passage (not a camera rotate).
  *
- * schemaVersion 4: if rooms[i].solids is non-empty, build that room from JSON
- * (local → world, optional space:"world", gapGateId hole). Rooms without solids
- * fall back to the v3 hardcode below.
+ * schemaVersion 4: if rooms[i].solids is present (array, may be empty), build
+ * that room from JSON (local → world, optional space:"world", gapGateId hole).
+ * Rooms that omit the solids field fall back to the v3 hardcode below.
+ * `"solids": []` is a data-driven empty room — do not fall back.
  *
  * R0–R1–R2 is a clear horizontal corridor. Adjacent floor/ceiling slabs at a
  * room join are merged into one body so Arcade AABB does not treat the seam
@@ -163,7 +164,7 @@ export function normalizeSolidKind(kind) {
 }
 
 export function roomHasSolids(room) {
-  return Array.isArray(room?.solids) && room.solids.length > 0;
+  return Array.isArray(room?.solids);
 }
 
 /** Source-JSON solid counts (before gap split / corridor merge). */
@@ -321,6 +322,10 @@ function appendDataDrivenRoom(room, gates, helpers) {
         );
       } else if (gate.world) {
         pieces = splitRectAroundGate(world, gate.world);
+      } else {
+        console.warn(
+          `[phymetroid] gapGateId "${raw.gapGateId}" on ${raw.id || room.id} has no world; skip hole`
+        );
       }
     }
     for (const piece of pieces) {

@@ -15,7 +15,7 @@
     "fromSchemaVersion": 3,
     "notes": [
       "layoutRevision 5: short R2_doorframe local(320,264,24,64); R3 ceil A/B/C; R5/R6 added.",
-      "v4 solids data-driven; v3 without solids → engine hardcode fallback.",
+      "v4 solids data-driven; omitted solids → engine hardcode fallback; empty [] is kept.",
       "corridorJoin skip vertical seals only on Y=0 band (R0–R2–R5–R6); never strip R3 side walls.",
       "gate_R1_to_R3 has no world; gapGateId dig only for gates with world.",
       "Pixel feel already WORLD_SCALE×2; do not re-scale."
