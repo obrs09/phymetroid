@@ -240,6 +240,12 @@ export class GameScene extends Phaser.Scene {
               y: p.y,
               active: p.active,
               hasBody: Boolean(p.body),
+              vx: p.body?.velocity?.x,
+              vy: p.body?.velocity?.y,
+              allowGravity: p.body?.allowGravity,
+              immovable: p.body?.immovable,
+              moves: p.body?.moves,
+              fixed: p.getData?.('fixed'),
             };
           }),
       };
@@ -344,6 +350,7 @@ export class GameScene extends Phaser.Scene {
     this.pickupGroup = this.physics.add.group();
     this.spawnPickups();
     this.bindPlayerPhysics();
+    this.syncGravityFromState();
     const mapWasOn = this.mapVisible;
     if (this.mapRoot) {
       this.mapRoot.destroy(true);
@@ -670,6 +677,11 @@ export class GameScene extends Phaser.Scene {
       if (spec.ability && hasAbility(spec.ability)) continue;
       const sprite = this.createPickup(spec);
       this.pickupGroup.add(sprite);
+      // Group.add reapplies Arcade defaults and can re-enable gravity.
+      tagFixed(sprite);
+      sprite.body?.setAllowGravity(false);
+      sprite.body?.setImmovable(true);
+      sprite.body?.setVelocity(0, 0);
     }
   }
 
