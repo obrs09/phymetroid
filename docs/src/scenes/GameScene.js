@@ -8,6 +8,7 @@ import {
   getPickups,
   getRooms,
   subscribeDesign,
+  subscribeLayout,
 } from '../designConfig.js';
 import { FeelDebugPanel } from '../feelDebugPanel.js';
 import { GravityDownFlash } from '../gravityFlash.js';
@@ -84,6 +85,7 @@ export class GameScene extends Phaser.Scene {
     this.currentRoomId = null;
     this.debugVisible = false;
     this.mapVisible = false;
+    this.roomLayer = [];
     this.coyoteUntil = 0;
     this.jumpBufferUntil = 0;
     this.jumpHeld = false;
@@ -163,6 +165,7 @@ export class GameScene extends Phaser.Scene {
     this.debugPanel = new FeelDebugPanel(this);
     this.runHud = new RunHud(this);
     this._unsubDesign = subscribeDesign(() => this.applyLiveFeel());
+    this._unsubLayout = subscribeLayout(() => this.rebuildWorldFromDesign());
     this.applyLiveFeel();
     this.syncGravityFromState();
 
@@ -205,6 +208,8 @@ export class GameScene extends Phaser.Scene {
         },
         toggleFeel: () => this.toggleDebug(),
         toggleMap: () => this.toggleMap(),
+        toggleLevelEdit: () => this.debugPanel?.setEditorOn(!this.debugPanel.editorOn),
+        editor: () => this.debugPanel?.levelEditor?.getState?.() ?? null,
         toggleAbility: (id) => this.debugToggleAbility(id),
         warpRoom: (id) => this.debugWarpRoom(id),
         flash: () => this.gravityFlash?.getState() ?? null,
@@ -215,6 +220,8 @@ export class GameScene extends Phaser.Scene {
 
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this._unsubDesign?.();
+      this._unsubLayout?.();
+      this.debugPanel?.levelEditor?.destroy?.();
       if (typeof window !== 'undefined' && window.__PHYMETROID_DEBUG__) {
         delete window.__PHYMETROID_DEBUG__;
       }
@@ -277,7 +284,56 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
+  destroyRoomBackgrounds() {
+    for (const obj of this.roomLayer || []) {
+      obj?.destroy?.();
+    }
+    this.roomLayer = [];
+  }
+
+  rebuildWorldFromDesign() {
+    if (!this.solids || !this.player) return;
+    const rooms = this.rooms();
+    const world = getWorldBounds(rooms);
+    this.physics.world.setBounds(world.x, world.y, world.w, world.h);
+    this.destroyRoomBackgrounds();
+    this.drawRoomBackgrounds();
+    this.solids.clear(true, true);
+    buildWorldSolids(this, this.solids, rooms, getGates());
+    if (this.pickupGroup) {
+      for (const child of this.pickupGroup.getChildren()) {
+        this.tweens.killTweensOf(child);
+      }
+      this.pickupGroup.clear(true, true);
+      this.spawnPickups();
+    }
+    const mapWasOn = this.mapVisible;
+    if (this.mapRoot) {
+      this.mapRoot.destroy(true);
+      this.mapRoot = null;
+      this.mapRoomGfx = {};
+    }
+    this.buildMapOverlay();
+    this.mapRoot.setVisible(mapWasOn);
+    const here = findRoomAt(this.player.x, this.player.y, rooms) || findRoomById(this.currentRoomId, rooms);
+    if (here) this.snapCameraToRoom(here, true);
+    else if (rooms[0]) this.snapCameraToRoom(rooms[0], true);
+    this.debugPanel?.levelEditor?.drawOverlay?.();
+  }
+
+  onEditorModeChange(active) {
+    if (active) {
+      if (this.physics.world.isPaused) this.physics.world.resume();
+    } else if (this.debugVisible && !this.physics.world.isPaused) {
+      this.player.setVelocity(0, 0);
+      this.physics.world.pause();
+      const room = findRoomAt(this.player.x, this.player.y, this.rooms());
+      if (room) this.snapCameraToRoom(room, true);
+    }
+  }
+
   drawRoomBackgrounds() {
+    if (!this.roomLayer) this.roomLayer = [];
     const colors = {
       R0: 0x16213e,
       R1: 0x1a2744,
@@ -311,11 +367,12 @@ export class GameScene extends Phaser.Scene {
         g.lineTo(x, y);
       }
       g.strokePath();
-      addHudText(this, room.x + px(6), room.y + px(6), room.id, {
+      const label = addHudText(this, room.x + px(6), room.y + px(6), room.id, {
         fontSize: UI_FONT_MD,
         color: '#546e7a',
       }).setDepth(1);
       g.setDepth(0);
+      this.roomLayer.push(g, label);
     }
     for (const gate of getGates()) {
       if (!gate.world) continue;
@@ -323,6 +380,7 @@ export class GameScene extends Phaser.Scene {
       hole.fillStyle(0x050508, 1);
       hole.fillRect(gate.world.x, gate.world.y - 1, gate.world.w, gate.world.h + 2);
       hole.setDepth(2);
+      this.roomLayer.push(hole);
     }
   }
 
@@ -484,7 +542,7 @@ export class GameScene extends Phaser.Scene {
     this.debugPanel.setVisible(this.debugVisible);
     if (this.debugVisible) {
       this.player.setVelocity(0, 0);
-      this.physics.world.pause();
+      if (!this.debugPanel.editorActive) this.physics.world.pause();
       this.debugPanel.refreshFields();
       this.debugPanel.refreshCheat?.();
     } else if (this.physics.world.isPaused) {
@@ -740,7 +798,7 @@ export class GameScene extends Phaser.Scene {
 
     if (this.debugVisible) {
       this.debugPanel.update(time);
-      consumeJumpEdges(false);
+      this.debugPanel.levelEditor?.update?.(time);
       this.debugPanel.refreshStatus({
         room: this.currentRoomId,
         gravityOn: this.gravityOn(),
@@ -754,7 +812,11 @@ export class GameScene extends Phaser.Scene {
         phase: getPhase(),
         deaths: getRunState().deaths,
       });
-      return;
+      if (!this.debugPanel.editorActive) {
+        consumeJumpEdges(false);
+        return;
+      }
+      // Level edit: keep walking / jump so new geometry can be playtested.
     }
 
     if (this.mapVisible) {

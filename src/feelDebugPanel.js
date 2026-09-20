@@ -10,6 +10,8 @@ import {
   nudgeFeel,
   resetDesignToDefaults,
 } from './designConfig.js';
+import { isTypingInEditorField } from './levelEditor.js';
+import { LevelEditor } from './levelEditorView.js';
 import { hasAbility } from './runState.js';
 
 const ROW_H = px(10);
@@ -26,21 +28,32 @@ export class FeelDebugPanel {
   constructor(scene) {
     this.scene = scene;
     this.visible = false;
+    this.editorOn = false;
     this.selectedIndex = 0;
     this.toastUntil = 0;
     this.toastMsg = '';
+    this.levelEditor = new LevelEditor(scene);
 
     this.root = scene.add.container(0, 0).setScrollFactor(0).setDepth(600).setVisible(false);
 
-    const panel = scene.add.rectangle(GAME_W / 2, GAME_H / 2, GAME_W - px(8), GAME_H - px(8), 0x0a0a12, 0.94);
-    panel.setStrokeStyle(2, 0xb2ff59, 1);
-    this.root.add(panel);
+    this.panel = scene.add.rectangle(GAME_W / 2, GAME_H / 2, GAME_W - px(8), GAME_H - px(8), 0x0a0a12, 0.94);
+    this.panel.setStrokeStyle(2, 0xb2ff59, 1);
+    this.root.add(this.panel);
 
     this.titleText = addHudText(scene, px(8), px(6), 'FEEL DEBUG  (F1 / `)', {
       fontSize: UI_FONT_LG,
       color: '#b2ff59',
     });
     this.root.add(this.titleText);
+
+    this.editorToggle = addHudText(scene, GAME_W - px(8), px(6), 'LEVEL EDIT: OFF', {
+      fontSize: UI_FONT_MD,
+      color: '#80cbc4',
+    })
+      .setOrigin(1, 0)
+      .setInteractive({ useHandCursor: true });
+    this.editorToggle.on('pointerdown', () => this.setEditorOn(!this.editorOn));
+    this.root.add(this.editorToggle);
 
     this.statusText = addHudText(scene, px(8), px(16), '', {
       fontSize: UI_FONT_SM,
@@ -113,46 +126,69 @@ export class FeelDebugPanel {
     return Boolean(event?.shiftKey || this.shiftKey?.isDown);
   }
 
+  get editorActive() {
+    return this.visible && this.editorOn;
+  }
+
   /**
    * @param {KeyboardEvent} event
    */
   onKeyDown(event) {
     if (!this.visible || !event) return;
+    if (isTypingInEditorField()) return;
     const ev = event.originalEvent || event;
     const key = ev.key;
     const code = ev.code;
     const shift = this.shiftDown(ev);
 
-    if (key === 'ArrowUp' || code === 'ArrowUp') {
+    if (this.editorOn) {
+      if (key === 'Tab' || code === 'Tab') {
+        ev.preventDefault?.();
+        this.levelEditor.cycleTool(shift ? -1 : 1);
+        return;
+      }
+      if (key === 'g' || key === 'G' || code === 'KeyG') {
+        this.levelEditor.cycleGrid();
+        return;
+      }
+      if (key === 'Delete' || key === 'Backspace' || code === 'Delete' || code === 'Backspace') {
+        this.levelEditor.deleteSelected();
+        return;
+      }
+    }
+
+    if (!this.editorOn && (key === 'ArrowUp' || code === 'ArrowUp')) {
       this.moveSelect(-1);
       return;
     }
-    if (key === 'ArrowDown' || code === 'ArrowDown') {
+    if (!this.editorOn && (key === 'ArrowDown' || code === 'ArrowDown')) {
       this.moveSelect(1);
       return;
     }
     if (
-      key === 'ArrowLeft' ||
-      code === 'ArrowLeft' ||
-      key === '[' ||
-      code === 'BracketLeft' ||
-      key === '-' ||
-      key === '_' ||
-      code === 'Minus' ||
-      code === 'NumpadSubtract'
+      !this.editorOn &&
+      (key === 'ArrowLeft' ||
+        code === 'ArrowLeft' ||
+        key === '[' ||
+        code === 'BracketLeft' ||
+        key === '-' ||
+        key === '_' ||
+        code === 'Minus' ||
+        code === 'NumpadSubtract')
     ) {
       this.adjust(-1, shift);
       return;
     }
     if (
-      key === 'ArrowRight' ||
-      code === 'ArrowRight' ||
-      key === ']' ||
-      code === 'BracketRight' ||
-      key === '=' ||
-      key === '+' ||
-      code === 'Equal' ||
-      code === 'NumpadAdd'
+      !this.editorOn &&
+      (key === 'ArrowRight' ||
+        code === 'ArrowRight' ||
+        key === ']' ||
+        code === 'BracketRight' ||
+        key === '=' ||
+        key === '+' ||
+        code === 'Equal' ||
+        code === 'NumpadAdd')
     ) {
       this.adjust(1, shift);
       return;
@@ -188,10 +224,57 @@ export class FeelDebugPanel {
   setVisible(visible) {
     this.visible = visible;
     this.root.setVisible(visible);
+    this.syncEditorChrome();
     if (visible) {
       this.refreshFields();
       this.refreshHelp();
     }
+  }
+
+  setEditorOn(on) {
+    this.editorOn = Boolean(on);
+    this.syncEditorChrome();
+    this.refreshHelp();
+    this.showToast(this.editorOn ? 'Level edit ON — walk + place' : 'Level edit OFF');
+  }
+
+  syncEditorChrome() {
+    const editing = this.editorActive;
+    this.levelEditor.setActive(editing);
+    this.levelEditor.chromeH = editing ? px(42) : px(8);
+    if (this.editorToggle) {
+      this.editorToggle.setText(this.editorOn ? 'LEVEL EDIT: ON' : 'LEVEL EDIT: OFF');
+      this.editorToggle.setColor(this.editorOn ? '#b2ff59' : '#80cbc4');
+    }
+    if (editing) {
+      this.panel.setSize(GAME_W - px(8), px(40));
+      this.panel.setPosition(GAME_W / 2, px(24));
+      this.panel.setFillStyle(0x0a0a12, 0.82);
+      this.highlight.setVisible(false);
+      this.rows.forEach((row) => {
+        row.label.setVisible(false);
+        row.minus.setVisible(false);
+        row.plus.setVisible(false);
+      });
+      this.cheatText.setY(px(28));
+      this.helpText.setY(px(38));
+      this.helpText.setVisible(false);
+    } else {
+      this.panel.setSize(GAME_W - px(8), GAME_H - px(8));
+      this.panel.setPosition(GAME_W / 2, GAME_H / 2);
+      this.panel.setFillStyle(0x0a0a12, 0.94);
+      this.highlight.setVisible(true);
+      this.rows.forEach((row) => {
+        row.label.setVisible(true);
+        row.minus.setVisible(true);
+        row.plus.setVisible(true);
+      });
+      this.cheatText.setY(px(128));
+      this.helpText.setY(px(148));
+      this.helpText.setVisible(true);
+    }
+    if (!this.visible) this.levelEditor.setActive(false);
+    this.scene.onEditorModeChange?.(this.editorActive);
   }
 
   showToast(msg, ms = 2200) {
@@ -203,11 +286,17 @@ export class FeelDebugPanel {
   refreshHelp() {
     this.refreshCheat();
     this.helpText.setText(
-      [
-        '1-4 toggle FALL/WALK/JUMP/FIELD   Shift+1-7 warp R0-R6',
-        'UP/DOWN select   [ ] -/= arrows adjust   Shift=big',
-        'E export JSON    R reset feel    F1/` close    M map',
-      ].join('\n')
+      this.editorOn
+        ? [
+            'LEVEL EDIT  Tab tool  G grid  click-drag place  Del erase',
+            '1-4 abilities  Shift+1-7 warp  E feel JSON  R reset dump',
+            'Copy/Download level JSON in the bottom strip   F1/` close',
+          ].join('\n')
+        : [
+            '1-4 toggle FALL/WALK/JUMP/FIELD   Shift+1-7 warp R0-R6',
+            'UP/DOWN select   [ ] -/= arrows adjust   Shift=big',
+            'E export JSON    R reset feel    F1/` close    M map',
+          ].join('\n')
     );
   }
 
@@ -265,9 +354,10 @@ export class FeelDebugPanel {
     const maxHp = info.maxHp ?? '?';
     const phase = info.phase ?? '?';
     const deaths = info.deaths ?? 0;
+    const phys = this.editorOn ? 'LIVE (edit)' : 'PAUSED';
     this.statusText.setText(
       `room ${room}  grav ${grav}/${down}  gnd ${gnd}  coy ${coy}  hp ${hp}/${maxHp}\n` +
-        `pos ${x},${y}  phase ${phase}  deaths ${deaths}  physics PAUSED`
+        `pos ${x},${y}  phase ${phase}  deaths ${deaths}  physics ${phys}`
     );
     if (this.scene.time.now >= this.toastUntil) this.toastText.setText('');
   }
@@ -296,9 +386,10 @@ export class FeelDebugPanel {
   }
 
   resetDefaults() {
-    resetDesignToDefaults();
+    if (this.editorOn) this.levelEditor.resetDefaults();
+    else resetDesignToDefaults();
     this.refreshFields();
-    this.showToast('Reset to defaults');
+    this.showToast('Reset to bundled default');
   }
 
   update() {

@@ -359,6 +359,8 @@ export const ROOM_DESIGN_DEFAULTS = DEFAULT_V4.sections.rooms;
 
 /** @type {Set<(feel: ReturnType<typeof getFeel>) => void>} */
 const listeners = new Set();
+/** @type {Set<() => void>} */
+const layoutListeners = new Set();
 
 function cloneFeel(src = FEEL_DEFAULTS) {
   return { ...FEEL_DEFAULTS, ...src };
@@ -1135,6 +1137,16 @@ function notify() {
   }
 }
 
+function notifyLayout() {
+  for (const fn of layoutListeners) {
+    try {
+      fn();
+    } catch (err) {
+      console.warn('designConfig layout listener failed', err);
+    }
+  }
+}
+
 function storage() {
   try {
     if (typeof window === 'undefined' || !window.localStorage) return null;
@@ -1155,6 +1167,7 @@ function persist() {
 }
 
 function applyImportedObject(obj) {
+  let layoutTouched = false;
   const feel = obj?.sections?.feel ?? obj?.feel;
   if (feel && typeof feel === 'object') {
     state.sections.feel = sanitizeFeel(feel);
@@ -1178,22 +1191,26 @@ function applyImportedObject(obj) {
   const rooms = obj?.sections?.rooms ?? obj?.rooms;
   if (Array.isArray(rooms)) {
     state.sections.rooms = sanitizeRooms(rooms);
+    layoutTouched = true;
   }
   const pickups = obj?.sections?.pickups ?? obj?.pickups;
   if (Array.isArray(pickups)) {
     state.sections.pickups = sanitizePickups(pickups);
+    layoutTouched = true;
   }
   const gates = obj?.sections?.gates ?? obj?.gates;
   if (Array.isArray(gates)) {
     state.sections.gates = sanitizeGates(gates);
+    layoutTouched = true;
   }
   const migrated = migrateAbilityChainLayout(state.sections);
   state.sections.rooms = migrated.rooms;
   state.sections.pickups = migrated.pickups;
   state.sections.gates = migrated.gates;
+  if (migrated.changed) layoutTouched = true;
   logDesignValidation(validateDesignGraph(state.sections));
   warnMissingGapGateIds(state.sections);
-  return { migrated: migrated.changed };
+  return { migrated: migrated.changed, layoutTouched };
 }
 
 function loadFromStorage() {
@@ -1327,6 +1344,7 @@ export function resetDesignToDefaults() {
     /* ignore */
   }
   notify();
+  notifyLayout();
   return getFeel();
 }
 
@@ -1337,6 +1355,16 @@ export function resetDesignToDefaults() {
 export function subscribeDesign(fn) {
   listeners.add(fn);
   return () => listeners.delete(fn);
+}
+
+/**
+ * Subscribe to room / pickup / gate layout changes (import, editor commit, reset).
+ * Feel-only tweaks do not fire this. Returns an unsubscribe function.
+ * @param {() => void} fn
+ */
+export function subscribeLayout(fn) {
+  layoutListeners.add(fn);
+  return () => layoutListeners.delete(fn);
 }
 
 /** Nudge one feel field by +1 / -1 step (Shift = larger step). */
@@ -1470,9 +1498,10 @@ export function applyDesignConfig(input) {
   if (!obj || typeof obj !== 'object') {
     throw new Error('design config must be an object or JSON string');
   }
-  applyImportedObject(obj);
+  const result = applyImportedObject(obj);
   persist();
   notify();
+  if (result.layoutTouched) notifyLayout();
   return buildExportPayload();
 }
 
@@ -1488,13 +1517,25 @@ async function copyToClipboard(text) {
   return false;
 }
 
+export function serializeDesignJson(payload = buildExportPayload()) {
+  return `${JSON.stringify(payload, null, 2)}\n`;
+}
+
+/** Copy current design JSON to the clipboard when the browser allows it. */
+export async function copyDesignJson() {
+  const payload = buildExportPayload();
+  const json = serializeDesignJson(payload);
+  const copied = await copyToClipboard(json);
+  return { json, copied, payload };
+}
+
 /**
  * Download current design as JSON (Blob + `<a download>`).
  * Also copies JSON to the clipboard when the browser allows it.
  */
 export async function downloadDesignJson() {
   const payload = buildExportPayload();
-  const json = `${JSON.stringify(payload, null, 2)}\n`;
+  const json = serializeDesignJson(payload);
   const filename = `phymetroid-design-${formatDesignStamp()}.json`;
 
   if (typeof document !== 'undefined') {
